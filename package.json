@@ -1,7 +1,7 @@
 {
   "name": "ticket-application-bot",
-  "version": "5.0.0",
-  "description": "Professional ticket system with DM-based staff application system (French buttons)",
+  "version": "6.0.0",
+  "description": "Professional ticket system with role-based staff application system",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
