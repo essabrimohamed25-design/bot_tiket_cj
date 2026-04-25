@@ -40,7 +40,7 @@ const client = new Client({
 });
 
 // ============================================
-// TICKET CONFIGURATION
+// CONFIGURATION
 // ============================================
 const TICKET_TYPES = {
     pub: { name: "Public Lounge", emoji: "🍻", color: "#38BDF8", desc: "General discussions & community chats" },
@@ -49,9 +49,6 @@ const TICKET_TYPES = {
     server: { name: "Server Support", emoji: "⚙️", color: "#8B5CF6", desc: "Technical support & server inquiries" }
 };
 
-// ============================================
-// APPLICATION CONFIGURATION
-// ============================================
 const APPLICATION_POSITIONS = {
     staff: { name: "🛠 Staff Team", emoji: "🛠", color: "#5865F2", description: "Help moderate and manage the community" },
     designer: { name: "🎨 Designer", emoji: "🎨", color: "#EB459E", description: "Create graphics and visual content" },
@@ -70,10 +67,78 @@ const APPLICATION_QUESTIONS = [
     { id: "device", question: "💻 PC / Phone / Both?", example: "Example: PC" }
 ];
 
-// Parse multiple staff roles from comma-separated string
+// Parse multiple roles from comma-separated strings
 const staffRolesArray = STAFF_ROLES ? STAFF_ROLES.split(',').map(r => r.trim()).filter(r => r.length > 0) : [];
-const activeTickets = new Map();
-const activeApplications = new Map();
+const reviewerRolesArray = REVIEWER_ROLE_ID ? REVIEWER_ROLE_ID.split(',').map(r => r.trim()).filter(r => r.length > 0) : [];
+
+// Ticket persistence storage
+const TICKET_STORAGE_FILE = '/tmp/active_tickets.json';
+let activeTickets = new Map();
+let activeApplications = new Map();
+
+// ============================================
+// TICKET PERSISTENCE FUNCTIONS
+// ============================================
+function saveActiveTickets() {
+    try {
+        const ticketsToSave = [];
+        for (const [channelId, data] of activeTickets) {
+            ticketsToSave.push({
+                channelId: channelId,
+                userId: data.userId,
+                userTag: data.userTag,
+                type: data.type,
+                createdAt: data.createdAt,
+                claimedBy: data.claimedBy || null,
+                claimedAt: data.claimedAt || null
+            });
+        }
+        fs.writeFileSync(TICKET_STORAGE_FILE, JSON.stringify(ticketsToSave, null, 2));
+        console.log(`💾 Saved ${ticketsToSave.length} active tickets to storage`);
+    } catch (error) {
+        console.error('Failed to save tickets:', error.message);
+    }
+}
+
+function loadActiveTickets() {
+    try {
+        if (fs.existsSync(TICKET_STORAGE_FILE)) {
+            const data = fs.readFileSync(TICKET_STORAGE_FILE, 'utf8');
+            const tickets = JSON.parse(data);
+            activeTickets.clear();
+            for (const ticket of tickets) {
+                activeTickets.set(ticket.channelId, {
+                    userId: ticket.userId,
+                    userTag: ticket.userTag,
+                    type: ticket.type,
+                    createdAt: ticket.createdAt,
+                    claimedBy: ticket.claimedBy,
+                    claimedAt: ticket.claimedAt
+                });
+            }
+            console.log(`📂 Loaded ${activeTickets.size} active tickets from storage`);
+            return true;
+        }
+    } catch (error) {
+        console.error('Failed to load tickets:', error.message);
+    }
+    return false;
+}
+
+async function verifyAndCleanTickets(guild) {
+    const validTickets = new Map();
+    for (const [channelId, ticketData] of activeTickets) {
+        const channel = guild.channels.cache.get(channelId);
+        if (channel && channel.parentId === TICKET_CATEGORY_ID) {
+            validTickets.set(channelId, ticketData);
+        } else {
+            console.log(`🗑️ Removing invalid ticket: ${channelId} (channel no longer exists or moved)`);
+        }
+    }
+    activeTickets = validTickets;
+    saveActiveTickets();
+    console.log(`✅ Verified tickets: ${activeTickets.size} valid tickets remaining`);
+}
 
 // ============================================
 // HELPER FUNCTIONS
@@ -119,26 +184,23 @@ async function generateTranscript(channel, ticketData) {
     }
 }
 
-// Check if a member has ANY of the staff roles
 function isStaff(member) {
     if (!member) return false;
     if (staffRolesArray.length === 0) return false;
     return staffRolesArray.some(roleId => member.roles.cache.has(roleId));
 }
 
-// Check if member has the reviewer role
 function isReviewer(member) {
-    if (!REVIEWER_ROLE_ID) return false;
-    return member.roles.cache.has(REVIEWER_ROLE_ID);
+    if (!member) return false;
+    if (reviewerRolesArray.length === 0) return false;
+    return reviewerRolesArray.some(roleId => member.roles.cache.has(roleId));
 }
 
-// Get staff role mentions for ticket channel
 function getStaffMentions() {
     if (staffRolesArray.length === 0) return "";
     return staffRolesArray.map(id => `<@&${id}>`).join(', ');
 }
 
-// Get staff permission overwrites for ticket channel
 function getStaffPermissionOverwrites() {
     return staffRolesArray.map(roleId => ({ 
         id: roleId, 
@@ -151,6 +213,29 @@ function getStaffPermissionOverwrites() {
             PermissionFlagsBits.UseExternalEmojis
         ] 
     }));
+}
+
+async function safeChannelBulkDelete(channel, limit = 10) {
+    try {
+        const messages = await channel.messages.fetch({ limit });
+        if (messages.size === 0) return;
+        
+        const filteredMessages = messages.filter(msg => Date.now() - msg.createdTimestamp < 1209600000);
+        
+        if (filteredMessages.size > 0) {
+            await channel.bulkDelete(filteredMessages);
+        }
+        
+        for (const msg of messages.filter(msg => Date.now() - msg.createdTimestamp >= 1209600000).values()) {
+            await msg.delete().catch(() => {});
+        }
+    } catch (error) {
+        console.error(`Bulk delete error: ${error.message}`);
+        const messages = await channel.messages.fetch({ limit }).catch(() => []);
+        for (const msg of messages) {
+            await msg.delete().catch(() => {});
+        }
+    }
 }
 
 // ============================================
@@ -216,9 +301,11 @@ function buildApplicationEmbed(application, user, status = null, reason = null) 
 }
 
 // ============================================
-// TICKET PANEL
+// PANEL CREATION
 // ============================================
 async function createTicketPanel(channel) {
+    await safeChannelBulkDelete(channel, 10);
+    
     const embed = new EmbedBuilder()
         .setTitle("🌟 SUPPORT TICKET SYSTEM")
         .setDescription(
@@ -278,10 +365,9 @@ async function createTicketPanel(channel) {
     await channel.send({ embeds: [embed], components: [row1, row2] });
 }
 
-// ============================================
-// APPLICATION PANEL
-// ============================================
 async function createApplicationPanel(channel) {
+    await safeChannelBulkDelete(channel, 10);
+    
     const embed = new EmbedBuilder()
         .setTitle("📋 STAFF APPLICATION SYSTEM")
         .setDescription(
@@ -519,7 +605,7 @@ async function cancelApplication(userId) {
 // ============================================
 client.once('ready', async () => {
     console.log(`✨ ${client.user.tag} is online!`);
-    console.log(`📋 Ticket & Application Bot - Multi-Role Staff Support`);
+    console.log(`📋 Ticket & Application Bot - Multi-Role Support`);
     
     const guild = client.guilds.cache.get(GUILD_ID);
     if (!guild) {
@@ -527,39 +613,32 @@ client.once('ready', async () => {
         return;
     }
 
+    // Load saved tickets
+    loadActiveTickets();
+    await verifyAndCleanTickets(guild);
+    
+    // Display loaded roles
     console.log(`\n📊 Staff Roles Loaded (${staffRolesArray.length}):`);
     staffRolesArray.forEach(roleId => {
         const role = guild.roles.cache.get(roleId);
-        if (role) {
-            console.log(`  ✓ ${role.name} (${roleId})`);
-        } else {
-            console.log(`  ✗ Unknown role (${roleId}) - Check ID!`);
-        }
+        console.log(`  ✓ ${role ? role.name : 'Unknown role'} (${roleId})`);
     });
 
-    if (REVIEWER_ROLE_ID) {
-        const reviewerRole = guild.roles.cache.get(REVIEWER_ROLE_ID);
-        if (reviewerRole) {
-            console.log(`\n✓ Reviewer Role: ${reviewerRole.name} (${REVIEWER_ROLE_ID})`);
-        } else {
-            console.log(`\n✗ Reviewer Role not found! Check REVIEWER_ROLE_ID`);
-        }
-    }
+    console.log(`\n📊 Reviewer Roles Loaded (${reviewerRolesArray.length}):`);
+    reviewerRolesArray.forEach(roleId => {
+        const role = guild.roles.cache.get(roleId);
+        console.log(`  ✓ ${role ? role.name : 'Unknown role'} (${roleId})`);
+    });
 
     if (ACCEPTED_ROLE_ID) {
         const acceptedRole = guild.roles.cache.get(ACCEPTED_ROLE_ID);
-        if (acceptedRole) {
-            console.log(`✓ Accepted Role: ${acceptedRole.name} (${ACCEPTED_ROLE_ID})`);
-        } else {
-            console.log(`✗ Accepted Role not found! Check ACCEPTED_ROLE_ID`);
-        }
+        console.log(`\n✓ Accepted Role: ${acceptedRole ? acceptedRole.name : 'Unknown role'} (${ACCEPTED_ROLE_ID})`);
     }
 
+    // Deploy panels
     if (TICKET_PANEL_CHANNEL_ID) {
         const ticketPanelChannel = client.channels.cache.get(TICKET_PANEL_CHANNEL_ID);
         if (ticketPanelChannel) {
-            const messages = await ticketPanelChannel.messages.fetch({ limit: 10 }).catch(() => []);
-            if (messages.size) await ticketPanelChannel.bulkDelete(messages).catch(() => {});
             await createTicketPanel(ticketPanelChannel);
             console.log("\n✅ Ticket panel deployed!");
         }
@@ -568,14 +647,13 @@ client.once('ready', async () => {
     if (APP_PANEL_CHANNEL_ID) {
         const appPanelChannel = client.channels.cache.get(APP_PANEL_CHANNEL_ID);
         if (appPanelChannel) {
-            const messages = await appPanelChannel.messages.fetch({ limit: 10 }).catch(() => []);
-            if (messages.size) await appPanelChannel.bulkDelete(messages).catch(() => {});
             await createApplicationPanel(appPanelChannel);
             console.log("✅ Application panel deployed!");
         }
     }
 
     console.log(`\n🚀 Bot is ready!`);
+    console.log(`💾 Ticket persistence enabled - ${activeTickets.size} tickets restored`);
 });
 
 // ============================================
@@ -584,7 +662,6 @@ client.once('ready', async () => {
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
     
-    // OPEN TICKET
     if (interaction.customId.startsWith('ticket_')) {
         const type = interaction.customId.replace('ticket_', '');
         const typeConfig = TICKET_TYPES[type];
@@ -628,6 +705,7 @@ client.on('interactionCreate', async (interaction) => {
                 type: typeConfig.name,
                 createdAt: Date.now()
             });
+            saveActiveTickets();
             
             const welcomeEmbed = new EmbedBuilder()
                 .setTitle(`${typeConfig.emoji} ${typeConfig.name.toUpperCase()} TICKET`)
@@ -694,7 +772,6 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
     
-    // CLOSE TICKET
     else if (interaction.customId === 'close_ticket') {
         const ticketData = activeTickets.get(interaction.channel.id);
         if (!ticketData) {
@@ -734,13 +811,13 @@ client.on('interactionCreate', async (interaction) => {
         try {
             await interaction.channel.delete();
             activeTickets.delete(interaction.channel.id);
+            saveActiveTickets();
             if (transcriptPath) fs.unlinkSync(transcriptPath);
         } catch (err) {
             console.error(err);
         }
     }
     
-    // CLAIM TICKET
     else if (interaction.customId === 'claim_ticket') {
         const ticketData = activeTickets.get(interaction.channel.id);
         if (!ticketData) {
@@ -764,6 +841,7 @@ client.on('interactionCreate', async (interaction) => {
         ticketData.claimedBy = interaction.user.id;
         ticketData.claimedAt = Date.now();
         activeTickets.set(interaction.channel.id, ticketData);
+        saveActiveTickets();
         
         const claimEmbed = new EmbedBuilder()
             .setTitle("🎫 TICKET CLAIMED")
@@ -852,16 +930,18 @@ client.on('messageCreate', async (message) => {
 });
 
 // ============================================
-// APPLICATION REVIEW - ACCEPT BUTTON
+// APPLICATION REVIEW - ACCEPT BUTTON (FIXED - Multiple Roles)
 // ============================================
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
     if (!interaction.customId.startsWith('app_approve_')) return;
     
+    // Check if user has ANY reviewer role (multiple roles support)
     if (!isReviewer(interaction.member)) {
+        const roleMentions = reviewerRolesArray.map(id => `<@&${id}>`).join(', ');
         return interaction.reply({ 
             embeds: [new EmbedBuilder()
-                .setDescription("❌ You don't have permission to review applications. This action requires the Reviewer role.")
+                .setDescription(`❌ You don't have permission to review applications.\n\nRequired roles: ${roleMentions}`)
                 .setColor(0xEF4444)
             ], 
             ephemeral: true 
@@ -948,16 +1028,18 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================
-// APPLICATION REVIEW - DENY BUTTON
+// APPLICATION REVIEW - DENY BUTTON (FIXED - Multiple Roles)
 // ============================================
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
     if (!interaction.customId.startsWith('app_deny_')) return;
     
+    // Check if user has ANY reviewer role (multiple roles support)
     if (!isReviewer(interaction.member)) {
+        const roleMentions = reviewerRolesArray.map(id => `<@&${id}>`).join(', ');
         return interaction.reply({ 
             embeds: [new EmbedBuilder()
-                .setDescription("❌ You don't have permission to review applications. This action requires the Reviewer role.")
+                .setDescription(`❌ You don't have permission to review applications.\n\nRequired roles: ${roleMentions}`)
                 .setColor(0xEF4444)
             ], 
             ephemeral: true 
