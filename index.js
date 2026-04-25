@@ -8,6 +8,8 @@ const {
     BOT_TOKEN,
     GUILD_ID,
     STAFF_ROLES,
+    REVIEWER_ROLE_ID,
+    ACCEPTED_ROLE_ID,
     BANNER_URL = "https://media.discordapp.net/attachments/1480969775344652470/1496647110525845625/DF7E4FDA-66D3-49FF-BD5E-7C746253AE2D.png",
     TICKET_CATEGORY_ID,
     TICKET_PANEL_CHANNEL_ID,
@@ -120,10 +122,15 @@ function isStaff(member) {
     return staffRolesArray.some(roleId => member.roles.cache.has(roleId));
 }
 
+function isReviewer(member) {
+    if (!REVIEWER_ROLE_ID) return false;
+    return member.roles.cache.has(REVIEWER_ROLE_ID);
+}
+
 // ============================================
 // APPLICATION EMBED BUILDER (Reusable)
 // ============================================
-function buildApplicationEmbed(application, user, status = null) {
+function buildApplicationEmbed(application, user, status = null, reason = null) {
     const positionConfig = APPLICATION_POSITIONS[application.position];
     const isReview = status === null;
     const isAccepted = status === 'accepted';
@@ -174,6 +181,10 @@ function buildApplicationEmbed(application, user, status = null) {
             value: value.length > 1024 ? value.substring(0, 1021) + '...' : value, 
             inline: false 
         });
+    }
+    
+    if (reason) {
+        embed.addFields({ name: "❌ Reason", value: `> ${reason}`, inline: false });
     }
     
     return embed;
@@ -420,10 +431,8 @@ async function submitApplication(userId) {
         return;
     }
     
-    // Build the application embed
     const embed = buildApplicationEmbed(application, user, null);
     
-    // Add buttons (only in review channel)
     const buttons = new ActionRowBuilder()
         .addComponents(
             new ButtonBuilder()
@@ -485,7 +494,7 @@ async function cancelApplication(userId) {
 // ============================================
 client.once('ready', async () => {
     console.log(`✨ ${client.user.tag} is online!`);
-    console.log(`📋 Ticket & Application Bot - French Buttons`);
+    console.log(`📋 Ticket & Application Bot - Role Based Review System`);
     
     const guild = client.guilds.cache.get(GUILD_ID);
     if (!guild) {
@@ -514,6 +523,8 @@ client.once('ready', async () => {
     }
 
     console.log(`\n🚀 Bot is ready!`);
+    console.log(`📋 Reviewer Role ID: ${REVIEWER_ROLE_ID || 'Not set'}`);
+    console.log(`✅ Accepted Role ID: ${ACCEPTED_ROLE_ID || 'Not set'}`);
 });
 
 // ============================================
@@ -778,15 +789,19 @@ client.on('messageCreate', async (message) => {
 });
 
 // ============================================
-// APPLICATION REVIEW - ACCEPT BUTTON
+// APPLICATION REVIEW - ACCEPT BUTTON (Role Restricted)
 // ============================================
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
     if (!interaction.customId.startsWith('app_approve_')) return;
     
-    if (!isStaff(interaction.member)) {
+    // Check if user has the reviewer role
+    if (!isReviewer(interaction.member)) {
         return interaction.reply({ 
-            embeds: [new EmbedBuilder().setDescription("❌ Only staff members can review applications.").setColor(0xEF4444)], 
+            embeds: [new EmbedBuilder()
+                .setDescription("❌ You don't have permission to review applications. This action requires the Reviewer role.")
+                .setColor(0xEF4444)
+            ], 
             ephemeral: true 
         });
     }
@@ -808,11 +823,9 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.reply({ content: "❌ User not found.", ephemeral: true });
     }
     
-    // Reconstruct application data from embed
+    // Extract answers from embed
     const originalEmbed = interaction.message.embeds[0];
     const answers = {};
-    
-    // Extract answers from embed fields (skip first 4 fields which are metadata)
     const answerFields = originalEmbed.fields.slice(4);
     const answerKeys = ['fullname', 'age', 'why', 'skills', 'experience', 'availability', 'device'];
     for (let i = 0; i < answerFields.length && i < answerKeys.length; i++) {
@@ -826,12 +839,24 @@ client.on('interactionCreate', async (interaction) => {
         positionEmoji: positionConfig.emoji,
         positionColor: positionConfig.color,
         answers: answers,
-        timestamp: Math.floor(originalEmbed.timestamp ? new Date(originalEmbed.timestamp).getTime() : Date.now())
+        timestamp: originalEmbed.timestamp ? new Date(originalEmbed.timestamp).getTime() : Date.now()
     };
     
     // Send to ACCEPTED channel (NO buttons)
     const acceptedEmbed = buildApplicationEmbed(application, user, 'accepted');
     await sendLog(guild, APP_ACCEPTED_CHANNEL_ID, acceptedEmbed);
+    
+    // Give the accepted role to the user
+    if (ACCEPTED_ROLE_ID && member) {
+        try {
+            await member.roles.add(ACCEPTED_ROLE_ID);
+            console.log(`✅ Added role ${ACCEPTED_ROLE_ID} to ${user.tag}`);
+        } catch (error) {
+            console.error(`Failed to add role to ${user.tag}:`, error.message);
+        }
+    } else if (member) {
+        console.log(`⚠️ ACCEPTED_ROLE_ID not set, skipping role assignment`);
+    }
     
     // DM to user
     try {
@@ -861,21 +886,26 @@ client.on('interactionCreate', async (interaction) => {
         ephemeral: false 
     });
     
+    // Disable buttons
     const row = ActionRowBuilder.from(interaction.message.components[0]);
     row.components.forEach(component => component.setDisabled(true));
     await interaction.message.edit({ components: [row] }).catch(() => {});
 });
 
 // ============================================
-// APPLICATION REVIEW - DENY BUTTON WITH MODAL
+// APPLICATION REVIEW - DENY BUTTON (Role Restricted)
 // ============================================
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
     if (!interaction.customId.startsWith('app_deny_')) return;
     
-    if (!isStaff(interaction.member)) {
+    // Check if user has the reviewer role
+    if (!isReviewer(interaction.member)) {
         return interaction.reply({ 
-            embeds: [new EmbedBuilder().setDescription("❌ Only staff members can review applications.").setColor(0xEF4444)], 
+            embeds: [new EmbedBuilder()
+                .setDescription("❌ You don't have permission to review applications. This action requires the Reviewer role.")
+                .setColor(0xEF4444)
+            ], 
             ephemeral: true 
         });
     }
@@ -923,14 +953,13 @@ client.on('interactionCreate', async (interaction) => {
     }
     
     const guild = interaction.guild;
-    const member = await guild.members.fetch(userId).catch(() => null);
     const user = await client.users.fetch(userId).catch(() => null);
     
     if (!user) {
         return interaction.reply({ content: "❌ User not found.", ephemeral: true });
     }
     
-    // Reconstruct application data from embed
+    // Extract answers from embed
     const originalMessage = client.denyMessageMap?.get(`${userId}_${position}`);
     const originalEmbed = originalMessage?.embeds[0];
     
@@ -954,8 +983,7 @@ client.on('interactionCreate', async (interaction) => {
     };
     
     // Send to REJECTED channel with reason (NO buttons)
-    const rejectedEmbed = buildApplicationEmbed(application, user, 'rejected');
-    rejectedEmbed.addFields({ name: "❌ Raison du refus", value: `> ${reason}`, inline: false });
+    const rejectedEmbed = buildApplicationEmbed(application, user, 'rejected', reason);
     await sendLog(guild, APP_REJECTED_CHANNEL_ID, rejectedEmbed);
     
     try {
@@ -985,6 +1013,7 @@ client.on('interactionCreate', async (interaction) => {
         ephemeral: false 
     });
     
+    // Disable buttons
     const originalMessageToDisable = client.denyMessageMap?.get(`${userId}_${position}`);
     if (originalMessageToDisable) {
         const row = ActionRowBuilder.from(originalMessageToDisable.components[0]);
