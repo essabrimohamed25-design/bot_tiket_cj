@@ -70,7 +70,8 @@ const APPLICATION_QUESTIONS = [
     { id: "device", question: "💻 PC / Phone / Both?", example: "Example: PC" }
 ];
 
-const staffRolesArray = STAFF_ROLES ? STAFF_ROLES.split(',').map(r => r.trim()) : [];
+// Parse multiple staff roles from comma-separated string
+const staffRolesArray = STAFF_ROLES ? STAFF_ROLES.split(',').map(r => r.trim()).filter(r => r.length > 0) : [];
 const activeTickets = new Map();
 const activeApplications = new Map();
 
@@ -118,21 +119,45 @@ async function generateTranscript(channel, ticketData) {
     }
 }
 
+// Check if a member has ANY of the staff roles
 function isStaff(member) {
+    if (!member) return false;
+    if (staffRolesArray.length === 0) return false;
     return staffRolesArray.some(roleId => member.roles.cache.has(roleId));
 }
 
+// Check if member has the reviewer role
 function isReviewer(member) {
     if (!REVIEWER_ROLE_ID) return false;
     return member.roles.cache.has(REVIEWER_ROLE_ID);
 }
 
+// Get staff role mentions for ticket channel
+function getStaffMentions() {
+    if (staffRolesArray.length === 0) return "";
+    return staffRolesArray.map(id => `<@&${id}>`).join(', ');
+}
+
+// Get staff permission overwrites for ticket channel
+function getStaffPermissionOverwrites() {
+    return staffRolesArray.map(roleId => ({ 
+        id: roleId, 
+        allow: [
+            PermissionFlagsBits.ViewChannel, 
+            PermissionFlagsBits.SendMessages, 
+            PermissionFlagsBits.ReadMessageHistory, 
+            PermissionFlagsBits.AttachFiles,
+            PermissionFlagsBits.AddReactions,
+            PermissionFlagsBits.UseExternalEmojis
+        ] 
+    }));
+}
+
 // ============================================
-// APPLICATION EMBED BUILDER (Reusable)
+// APPLICATION EMBED BUILDER
 // ============================================
 function buildApplicationEmbed(application, user, status = null, reason = null) {
     const positionConfig = APPLICATION_POSITIONS[application.position];
-    const isReview = status === null;
     const isAccepted = status === 'accepted';
     const isRejected = status === 'rejected';
     
@@ -494,12 +519,40 @@ async function cancelApplication(userId) {
 // ============================================
 client.once('ready', async () => {
     console.log(`✨ ${client.user.tag} is online!`);
-    console.log(`📋 Ticket & Application Bot - Role Based Review System`);
+    console.log(`📋 Ticket & Application Bot - Multi-Role Staff Support`);
     
     const guild = client.guilds.cache.get(GUILD_ID);
     if (!guild) {
         console.error("❌ Guild not found! Check GUILD_ID environment variable.");
         return;
+    }
+
+    console.log(`\n📊 Staff Roles Loaded (${staffRolesArray.length}):`);
+    staffRolesArray.forEach(roleId => {
+        const role = guild.roles.cache.get(roleId);
+        if (role) {
+            console.log(`  ✓ ${role.name} (${roleId})`);
+        } else {
+            console.log(`  ✗ Unknown role (${roleId}) - Check ID!`);
+        }
+    });
+
+    if (REVIEWER_ROLE_ID) {
+        const reviewerRole = guild.roles.cache.get(REVIEWER_ROLE_ID);
+        if (reviewerRole) {
+            console.log(`\n✓ Reviewer Role: ${reviewerRole.name} (${REVIEWER_ROLE_ID})`);
+        } else {
+            console.log(`\n✗ Reviewer Role not found! Check REVIEWER_ROLE_ID`);
+        }
+    }
+
+    if (ACCEPTED_ROLE_ID) {
+        const acceptedRole = guild.roles.cache.get(ACCEPTED_ROLE_ID);
+        if (acceptedRole) {
+            console.log(`✓ Accepted Role: ${acceptedRole.name} (${ACCEPTED_ROLE_ID})`);
+        } else {
+            console.log(`✗ Accepted Role not found! Check ACCEPTED_ROLE_ID`);
+        }
     }
 
     if (TICKET_PANEL_CHANNEL_ID) {
@@ -508,7 +561,7 @@ client.once('ready', async () => {
             const messages = await ticketPanelChannel.messages.fetch({ limit: 10 }).catch(() => []);
             if (messages.size) await ticketPanelChannel.bulkDelete(messages).catch(() => {});
             await createTicketPanel(ticketPanelChannel);
-            console.log("✅ Ticket panel deployed!");
+            console.log("\n✅ Ticket panel deployed!");
         }
     }
 
@@ -523,8 +576,6 @@ client.once('ready', async () => {
     }
 
     console.log(`\n🚀 Bot is ready!`);
-    console.log(`📋 Reviewer Role ID: ${REVIEWER_ROLE_ID || 'Not set'}`);
-    console.log(`✅ Accepted Role ID: ${ACCEPTED_ROLE_ID || 'Not set'}`);
 });
 
 // ============================================
@@ -533,6 +584,7 @@ client.once('ready', async () => {
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
     
+    // OPEN TICKET
     if (interaction.customId.startsWith('ticket_')) {
         const type = interaction.customId.replace('ticket_', '');
         const typeConfig = TICKET_TYPES[type];
@@ -556,6 +608,8 @@ client.on('interactionCreate', async (interaction) => {
         const ticketName = `${type}-${interaction.user.username}`;
         
         try {
+            const staffOverwrites = getStaffPermissionOverwrites();
+            
             const ticketChannel = await interaction.guild.channels.create({
                 name: ticketName,
                 type: ChannelType.GuildText,
@@ -564,7 +618,7 @@ client.on('interactionCreate', async (interaction) => {
                 permissionOverwrites: [
                     { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
                     { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles] },
-                    ...staffRolesArray.map(roleId => ({ id: roleId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles] }))
+                    ...staffOverwrites
                 ]
             });
             
@@ -613,7 +667,7 @@ client.on('interactionCreate', async (interaction) => {
                         .setStyle(ButtonStyle.Secondary)
                 );
             
-            const mentionText = `${interaction.user} | ${staffRolesArray.map(id => `<@&${id}>`).join(', ')}`;
+            const mentionText = `${interaction.user} | ${getStaffMentions()}`;
             await ticketChannel.send({ content: mentionText, embeds: [welcomeEmbed], components: [actionRow] });
             
             const logEmbed = new EmbedBuilder()
@@ -640,10 +694,18 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
     
+    // CLOSE TICKET
     else if (interaction.customId === 'close_ticket') {
         const ticketData = activeTickets.get(interaction.channel.id);
         if (!ticketData) {
             return interaction.reply({ content: "❌ This is not a valid ticket channel.", ephemeral: true });
+        }
+        
+        if (!isStaff(interaction.member)) {
+            return interaction.reply({ 
+                embeds: [new EmbedBuilder().setDescription("❌ Only staff members can close tickets.").setColor(0xEF4444)], 
+                ephemeral: true 
+            });
         }
         
         await interaction.deferReply({ ephemeral: true });
@@ -678,6 +740,7 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
     
+    // CLAIM TICKET
     else if (interaction.customId === 'claim_ticket') {
         const ticketData = activeTickets.get(interaction.channel.id);
         if (!ticketData) {
@@ -789,13 +852,12 @@ client.on('messageCreate', async (message) => {
 });
 
 // ============================================
-// APPLICATION REVIEW - ACCEPT BUTTON (Role Restricted)
+// APPLICATION REVIEW - ACCEPT BUTTON
 // ============================================
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
     if (!interaction.customId.startsWith('app_approve_')) return;
     
-    // Check if user has the reviewer role
     if (!isReviewer(interaction.member)) {
         return interaction.reply({ 
             embeds: [new EmbedBuilder()
@@ -823,7 +885,6 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.reply({ content: "❌ User not found.", ephemeral: true });
     }
     
-    // Extract answers from embed
     const originalEmbed = interaction.message.embeds[0];
     const answers = {};
     const answerFields = originalEmbed.fields.slice(4);
@@ -842,11 +903,9 @@ client.on('interactionCreate', async (interaction) => {
         timestamp: originalEmbed.timestamp ? new Date(originalEmbed.timestamp).getTime() : Date.now()
     };
     
-    // Send to ACCEPTED channel (NO buttons)
     const acceptedEmbed = buildApplicationEmbed(application, user, 'accepted');
     await sendLog(guild, APP_ACCEPTED_CHANNEL_ID, acceptedEmbed);
     
-    // Give the accepted role to the user
     if (ACCEPTED_ROLE_ID && member) {
         try {
             await member.roles.add(ACCEPTED_ROLE_ID);
@@ -854,11 +913,8 @@ client.on('interactionCreate', async (interaction) => {
         } catch (error) {
             console.error(`Failed to add role to ${user.tag}:`, error.message);
         }
-    } else if (member) {
-        console.log(`⚠️ ACCEPTED_ROLE_ID not set, skipping role assignment`);
     }
     
-    // DM to user
     try {
         const acceptDMEmbed = new EmbedBuilder()
             .setTitle("✅ Félicitations ! Candidature Acceptée")
@@ -886,20 +942,18 @@ client.on('interactionCreate', async (interaction) => {
         ephemeral: false 
     });
     
-    // Disable buttons
     const row = ActionRowBuilder.from(interaction.message.components[0]);
     row.components.forEach(component => component.setDisabled(true));
     await interaction.message.edit({ components: [row] }).catch(() => {});
 });
 
 // ============================================
-// APPLICATION REVIEW - DENY BUTTON (Role Restricted)
+// APPLICATION REVIEW - DENY BUTTON
 // ============================================
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
     if (!interaction.customId.startsWith('app_deny_')) return;
     
-    // Check if user has the reviewer role
     if (!isReviewer(interaction.member)) {
         return interaction.reply({ 
             embeds: [new EmbedBuilder()
@@ -959,7 +1013,6 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.reply({ content: "❌ User not found.", ephemeral: true });
     }
     
-    // Extract answers from embed
     const originalMessage = client.denyMessageMap?.get(`${userId}_${position}`);
     const originalEmbed = originalMessage?.embeds[0];
     
@@ -982,7 +1035,6 @@ client.on('interactionCreate', async (interaction) => {
         timestamp: originalEmbed ? new Date(originalEmbed.timestamp).getTime() : Date.now()
     };
     
-    // Send to REJECTED channel with reason (NO buttons)
     const rejectedEmbed = buildApplicationEmbed(application, user, 'rejected', reason);
     await sendLog(guild, APP_REJECTED_CHANNEL_ID, rejectedEmbed);
     
@@ -1013,7 +1065,6 @@ client.on('interactionCreate', async (interaction) => {
         ephemeral: false 
     });
     
-    // Disable buttons
     const originalMessageToDisable = client.denyMessageMap?.get(`${userId}_${position}`);
     if (originalMessageToDisable) {
         const row = ActionRowBuilder.from(originalMessageToDisable.components[0]);
