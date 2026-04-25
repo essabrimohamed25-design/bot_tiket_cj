@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Partials, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const fs = require('fs');
 
 // ============================================
@@ -38,7 +38,7 @@ const client = new Client({
 });
 
 // ============================================
-// TICKET CONFIGURATION (UNCHANGED)
+// TICKET CONFIGURATION
 // ============================================
 const TICKET_TYPES = {
     pub: { name: "Public Lounge", emoji: "🍻", color: "#38BDF8", desc: "General discussions & community chats" },
@@ -48,7 +48,7 @@ const TICKET_TYPES = {
 };
 
 // ============================================
-// APPLICATION CONFIGURATION (NEW - DM BASED)
+// APPLICATION CONFIGURATION
 // ============================================
 const APPLICATION_POSITIONS = {
     staff: { name: "🛠 Staff Team", emoji: "🛠", color: "#5865F2", description: "Help moderate and manage the community" },
@@ -121,7 +121,66 @@ function isStaff(member) {
 }
 
 // ============================================
-// TICKET PANEL (UNCHANGED)
+// APPLICATION EMBED BUILDER (Reusable)
+// ============================================
+function buildApplicationEmbed(application, user, status = null) {
+    const positionConfig = APPLICATION_POSITIONS[application.position];
+    const isReview = status === null;
+    const isAccepted = status === 'accepted';
+    const isRejected = status === 'rejected';
+    
+    let title = `${positionConfig.emoji} NEW APPLICATION - ${positionConfig.name}`;
+    let color = positionConfig.color;
+    let footerText = "Application awaiting review";
+    
+    if (isAccepted) {
+        title = `${positionConfig.emoji} APPLICATION ACCEPTED - ${positionConfig.name}`;
+        color = 0x22C55E;
+        footerText = "Application approved";
+    } else if (isRejected) {
+        title = `${positionConfig.emoji} APPLICATION DENIED - ${positionConfig.name}`;
+        color = 0xEF4444;
+        footerText = "Application denied";
+    }
+    
+    const embed = new EmbedBuilder()
+        .setTitle(title)
+        .setDescription(
+            `**Applicant:** ${user.tag} (<@${application.userId}>)\n` +
+            `**Position:** ${positionConfig.name}\n` +
+            `**Submitted:** <t:${Math.floor(application.timestamp / 1000)}:F>\n` +
+            `**User ID:** \`${application.userId}\``
+        )
+        .setColor(color)
+        .setThumbnail(user.displayAvatarURL({ dynamic: true, size: 256 }))
+        .setImage(BANNER_URL)
+        .setTimestamp()
+        .setFooter({ text: footerText });
+    
+    const questionLabels = {
+        fullname: "📝 Full name",
+        age: "🎂 Age",
+        why: "💭 Why join staff team?",
+        skills: "🛠️ Skills",
+        experience: "📜 Experience",
+        availability: "⏰ Availability",
+        device: "💻 Device"
+    };
+    
+    for (const [key, value] of Object.entries(application.answers)) {
+        const label = questionLabels[key] || key;
+        embed.addFields({ 
+            name: label, 
+            value: value.length > 1024 ? value.substring(0, 1021) + '...' : value, 
+            inline: false 
+        });
+    }
+    
+    return embed;
+}
+
+// ============================================
+// TICKET PANEL
 // ============================================
 async function createTicketPanel(channel) {
     const embed = new EmbedBuilder()
@@ -184,7 +243,7 @@ async function createTicketPanel(channel) {
 }
 
 // ============================================
-// APPLICATION PANEL (NEW - SIMPLE BUTTON)
+// APPLICATION PANEL
 // ============================================
 async function createApplicationPanel(channel) {
     const embed = new EmbedBuilder()
@@ -260,14 +319,12 @@ async function startApplication(user, position) {
     const positionConfig = APPLICATION_POSITIONS[position];
     if (!positionConfig) return false;
     
-    // Check if user already has an active application
     if (activeApplications.has(user.id)) {
         await user.send("❌ You already have an active application in progress. Please complete or cancel it first.\nType `cancel` to cancel your current application.")
             .catch(() => {});
         return false;
     }
     
-    // Create new application session
     const application = {
         userId: user.id,
         position: position,
@@ -281,7 +338,6 @@ async function startApplication(user, position) {
     
     activeApplications.set(user.id, application);
     
-    // Send welcome message
     const welcomeEmbed = new EmbedBuilder()
         .setTitle(`${positionConfig.emoji} Staff Application - ${positionConfig.name}`)
         .setDescription(
@@ -299,7 +355,6 @@ async function startApplication(user, position) {
         return false;
     });
     
-    // Send first question
     await sendNextQuestion(user.id);
     return true;
 }
@@ -309,7 +364,6 @@ async function sendNextQuestion(userId) {
     if (!application) return;
     
     if (application.step >= APPLICATION_QUESTIONS.length) {
-        // Application complete - submit for review
         await submitApplication(userId);
         return;
     }
@@ -333,13 +387,11 @@ async function processAnswer(userId, answer) {
     const application = activeApplications.get(userId);
     if (!application) return;
     
-    // Save answer
     const currentQuestion = APPLICATION_QUESTIONS[application.step];
     application.answers[currentQuestion.id] = answer;
     application.step++;
     activeApplications.set(userId, application);
     
-    // Send next question or complete
     await sendNextQuestion(userId);
 }
 
@@ -368,66 +420,34 @@ async function submitApplication(userId) {
         return;
     }
     
-    // Create embed for review channel
-    const positionConfig = APPLICATION_POSITIONS[application.position];
+    // Build the application embed
+    const embed = buildApplicationEmbed(application, user, null);
     
-    const embed = new EmbedBuilder()
-        .setTitle(`${positionConfig.emoji} NEW APPLICATION - ${positionConfig.name}`)
-        .setDescription(
-            `**Applicant:** ${user.tag} (<@${userId}>)\n` +
-            `**Position:** ${positionConfig.name}\n` +
-            `**Submitted:** <t:${Math.floor(application.timestamp / 1000)}:F>\n` +
-            `**User ID:** \`${userId}\``
-        )
-        .setColor(positionConfig.color)
-        .setThumbnail(user.displayAvatarURL({ dynamic: true, size: 256 }))
-        .setImage(BANNER_URL)
-        .setTimestamp();
-    
-    const questionLabels = {
-        fullname: "Full name",
-        age: "Age",
-        why: "Why join staff team?",
-        skills: "Skills",
-        experience: "Experience",
-        availability: "Availability",
-        device: "Device"
-    };
-    
-    for (const [key, value] of Object.entries(application.answers)) {
-        const label = questionLabels[key] || key;
-        embed.addFields({ 
-            name: `📌 ${label}`, 
-            value: value.length > 1024 ? value.substring(0, 1021) + '...' : value, 
-            inline: false 
-        });
-    }
-    
+    // Add buttons (only in review channel)
     const buttons = new ActionRowBuilder()
         .addComponents(
             new ButtonBuilder()
                 .setCustomId(`app_approve_${userId}_${application.position}`)
-                .setLabel('Approve')
+                .setLabel('Accepter')
                 .setEmoji('✅')
                 .setStyle(ButtonStyle.Success),
             new ButtonBuilder()
                 .setCustomId(`app_deny_${userId}_${application.position}`)
-                .setLabel('Deny')
+                .setLabel('Refuser')
                 .setEmoji('❌')
                 .setStyle(ButtonStyle.Danger),
             new ButtonBuilder()
-                .setLabel('View Profile')
+                .setLabel('Voir Profil')
                 .setURL(`https://discord.com/users/${userId}`)
                 .setStyle(ButtonStyle.Link)
         );
     
     await reviewChannel.send({ embeds: [embed], components: [buttons] });
     
-    // Send confirmation to user
     const confirmEmbed = new EmbedBuilder()
         .setTitle("✅ APPLICATION SUBMITTED")
         .setDescription(
-            `> Your application for **${positionConfig.name}** has been submitted!\n\n` +
+            `> Your application for **${application.positionName}** has been submitted!\n\n` +
             `**What happens next?**\n` +
             `• Our team will review your application within 48 hours\n` +
             `• You will be contacted via DM if you're selected\n` +
@@ -439,7 +459,6 @@ async function submitApplication(userId) {
     
     await user.send({ embeds: [confirmEmbed] }).catch(() => {});
     
-    // Clean up
     activeApplications.delete(userId);
 }
 
@@ -466,7 +485,7 @@ async function cancelApplication(userId) {
 // ============================================
 client.once('ready', async () => {
     console.log(`✨ ${client.user.tag} is online!`);
-    console.log(`📋 Ticket & DM-Based Application Bot`);
+    console.log(`📋 Ticket & Application Bot - French Buttons`);
     
     const guild = client.guilds.cache.get(GUILD_ID);
     if (!guild) {
@@ -474,7 +493,6 @@ client.once('ready', async () => {
         return;
     }
 
-    // Setup ticket panel
     if (TICKET_PANEL_CHANNEL_ID) {
         const ticketPanelChannel = client.channels.cache.get(TICKET_PANEL_CHANNEL_ID);
         if (ticketPanelChannel) {
@@ -485,7 +503,6 @@ client.once('ready', async () => {
         }
     }
 
-    // Setup application panel
     if (APP_PANEL_CHANNEL_ID) {
         const appPanelChannel = client.channels.cache.get(APP_PANEL_CHANNEL_ID);
         if (appPanelChannel) {
@@ -500,12 +517,11 @@ client.once('ready', async () => {
 });
 
 // ============================================
-// TICKET SYSTEM - BUTTON HANDLER (UNCHANGED)
+// TICKET SYSTEM - BUTTON HANDLER
 // ============================================
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
     
-    // OPEN TICKET
     if (interaction.customId.startsWith('ticket_')) {
         const type = interaction.customId.replace('ticket_', '');
         const typeConfig = TICKET_TYPES[type];
@@ -613,7 +629,6 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
     
-    // CLOSE TICKET
     else if (interaction.customId === 'close_ticket') {
         const ticketData = activeTickets.get(interaction.channel.id);
         if (!ticketData) {
@@ -652,7 +667,6 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
     
-    // CLAIM TICKET
     else if (interaction.customId === 'claim_ticket') {
         const ticketData = activeTickets.get(interaction.channel.id);
         if (!ticketData) {
@@ -695,7 +709,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================
-// APPLICATION SYSTEM - DROPDOWN HANDLER (NEW)
+// APPLICATION SYSTEM - DROPDOWN HANDLER
 // ============================================
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isStringSelectMenu()) return;
@@ -708,10 +722,8 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.reply({ content: "❌ Invalid position selected.", ephemeral: true });
     }
     
-    // Check if user has DMs enabled
-    const user = interaction.user;
     try {
-        await user.send({ content: "Starting application process..." });
+        await interaction.user.send({ content: "Starting application process..." });
     } catch (error) {
         return interaction.reply({ 
             content: "❌ I cannot send you a DM. Please enable DMs from server members and try again.", 
@@ -719,12 +731,11 @@ client.on('interactionCreate', async (interaction) => {
         });
     }
     
-    // Start the application process
-    const success = await startApplication(user, selectedPosition);
+    const success = await startApplication(interaction.user, selectedPosition);
     
     if (success) {
         await interaction.reply({ 
-            content: `✅ Application process started! Please check your DMs (<@${user.id}>). You will be asked ${APPLICATION_QUESTIONS.length} questions.`,
+            content: `✅ Application process started! Please check your DMs (<@${interaction.user.id}>). You will be asked ${APPLICATION_QUESTIONS.length} questions.`,
             ephemeral: true 
         });
     } else {
@@ -736,16 +747,15 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================
-// DM MESSAGE HANDLER - PROCESS ANSWERS
+// DM MESSAGE HANDLER
 // ============================================
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
-    if (message.guild) return; // Only process DMs
+    if (message.guild) return;
     
     const userId = message.author.id;
     const content = message.content.trim();
     
-    // Check for cancel command
     if (content.toLowerCase() === 'cancel') {
         const cancelled = await cancelApplication(userId);
         if (cancelled) {
@@ -756,11 +766,9 @@ client.on('messageCreate', async (message) => {
         return;
     }
     
-    // Check if user has an active application
     const application = activeApplications.get(userId);
     if (!application) return;
     
-    // Process the answer
     if (content.length < 1) {
         await message.reply("❌ Please provide a valid answer.");
         return;
@@ -770,7 +778,7 @@ client.on('messageCreate', async (message) => {
 });
 
 // ============================================
-// APPLICATION REVIEW - APPROVE BUTTON
+// APPLICATION REVIEW - ACCEPT BUTTON
 // ============================================
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
@@ -794,52 +802,65 @@ client.on('interactionCreate', async (interaction) => {
     
     const guild = interaction.guild;
     const member = await guild.members.fetch(userId).catch(() => null);
+    const user = await client.users.fetch(userId).catch(() => null);
     
-    // Accepted Embed for Log Channel
-    const acceptLogEmbed = new EmbedBuilder()
-        .setTitle("✅ APPLICATION APPROVED")
-        .setDescription(
-            `**Applicant:** ${member?.user?.tag || userId}\n` +
-            `**Position:** ${positionConfig.name}\n` +
-            `**Reviewed by:** ${interaction.user.tag}\n` +
-            `**Date:** <t:${Math.floor(Date.now() / 1000)}:F>`
-        )
-        .setColor(0x22C55E)
-        .setThumbnail(member?.user?.displayAvatarURL() || null)
-        .setTimestamp()
-        .setFooter({ text: "Application approved" });
+    if (!user) {
+        return interaction.reply({ content: "❌ User not found.", ephemeral: true });
+    }
     
-    await sendLog(guild, APP_ACCEPTED_CHANNEL_ID, acceptLogEmbed);
+    // Reconstruct application data from embed
+    const originalEmbed = interaction.message.embeds[0];
+    const answers = {};
+    
+    // Extract answers from embed fields (skip first 4 fields which are metadata)
+    const answerFields = originalEmbed.fields.slice(4);
+    const answerKeys = ['fullname', 'age', 'why', 'skills', 'experience', 'availability', 'device'];
+    for (let i = 0; i < answerFields.length && i < answerKeys.length; i++) {
+        answers[answerKeys[i]] = answerFields[i].value;
+    }
+    
+    const application = {
+        userId: userId,
+        position: position,
+        positionName: positionConfig.name,
+        positionEmoji: positionConfig.emoji,
+        positionColor: positionConfig.color,
+        answers: answers,
+        timestamp: Math.floor(originalEmbed.timestamp ? new Date(originalEmbed.timestamp).getTime() : Date.now())
+    };
+    
+    // Send to ACCEPTED channel (NO buttons)
+    const acceptedEmbed = buildApplicationEmbed(application, user, 'accepted');
+    await sendLog(guild, APP_ACCEPTED_CHANNEL_ID, acceptedEmbed);
     
     // DM to user
     try {
         const acceptDMEmbed = new EmbedBuilder()
-            .setTitle("✅ Application Approved!")
+            .setTitle("✅ Félicitations ! Candidature Acceptée")
             .setDescription(
-                `**Congratulations ${member?.user?.username || 'Applicant'}!**\n\n` +
-                `Your application for **${positionConfig.name}** has been **approved**!\n\n` +
-                `**Next Steps:**\n` +
-                `• A staff member will reach out to you shortly\n` +
-                `• Please check your DMs for further instructions\n` +
-                `• Welcome to the team! 🎉`
+                `**Félicitations ${user.username} !**\n\n` +
+                `Votre candidature pour **${positionConfig.name}** a été **acceptée** !\n\n` +
+                `**Prochaines étapes:**\n` +
+                `• Un membre de l'équipe vous contactera prochainement\n` +
+                `• Vous recevrez les instructions pour commencer\n` +
+                `• Bienvenue dans l'équipe ! 🎉`
             )
             .setColor(0x22C55E)
             .setTimestamp();
-        await member?.send({ embeds: [acceptDMEmbed] });
+        await user.send({ embeds: [acceptDMEmbed] });
     } catch (e) {
         console.log(`Could not DM ${userId}`);
     }
     
     await interaction.reply({ 
         embeds: [new EmbedBuilder()
-            .setTitle("✅ Application Approved")
-            .setDescription(`Successfully approved **${member?.user?.tag || userId}** for **${positionConfig.name}**.`)
+            .setTitle("✅ Candidature Acceptée")
+            .setDescription(`Vous avez accepté la candidature de **${user.tag}** pour **${positionConfig.name}**.`)
             .setColor(0x22C55E)
         ], 
         ephemeral: false 
     });
     
-    // Disable buttons
     const row = ActionRowBuilder.from(interaction.message.components[0]);
     row.components.forEach(component => component.setDisabled(true));
     await interaction.message.edit({ components: [row] }).catch(() => {});
@@ -863,24 +884,21 @@ client.on('interactionCreate', async (interaction) => {
     const userId = parts[2];
     const position = parts[3];
     
-    // Create modal for rejection reason
-    const { ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
     const modal = new ModalBuilder()
         .setCustomId(`reject_modal_${userId}_${position}`)
-        .setTitle("Deny Application");
+        .setTitle("Refuser la candidature");
     
     const reasonInput = new TextInputBuilder()
         .setCustomId('reason')
-        .setLabel("Rejection Reason")
+        .setLabel("Raison du refus")
         .setStyle(TextInputStyle.Paragraph)
         .setRequired(true)
-        .setPlaceholder("e.g., Not enough experience, application too short...")
+        .setPlaceholder("Ex: Manque d'expérience, disponibilité insuffisante...")
         .setMaxLength(1000);
     
     const row = new ActionRowBuilder().addComponents(reasonInput);
     modal.addComponents(row);
     
-    // Store message for later disabling
     client.denyMessageMap = client.denyMessageMap || new Map();
     client.denyMessageMap.set(`${userId}_${position}`, interaction.message);
     
@@ -906,57 +924,72 @@ client.on('interactionCreate', async (interaction) => {
     
     const guild = interaction.guild;
     const member = await guild.members.fetch(userId).catch(() => null);
+    const user = await client.users.fetch(userId).catch(() => null);
     
-    // Rejected Embed for Log Channel
-    const rejectLogEmbed = new EmbedBuilder()
-        .setTitle("❌ APPLICATION DENIED")
-        .setDescription(
-            `**Applicant:** ${member?.user?.tag || userId}\n` +
-            `**Position:** ${positionConfig.name}\n` +
-            `**Reviewed by:** ${interaction.user.tag}\n` +
-            `**Date:** <t:${Math.floor(Date.now() / 1000)}:F>\n\n` +
-            `**Reason:**\n> ${reason}`
-        )
-        .setColor(0xEF4444)
-        .setThumbnail(member?.user?.displayAvatarURL() || null)
-        .setTimestamp()
-        .setFooter({ text: "Application denied" });
+    if (!user) {
+        return interaction.reply({ content: "❌ User not found.", ephemeral: true });
+    }
     
-    await sendLog(guild, APP_REJECTED_CHANNEL_ID, rejectLogEmbed);
+    // Reconstruct application data from embed
+    const originalMessage = client.denyMessageMap?.get(`${userId}_${position}`);
+    const originalEmbed = originalMessage?.embeds[0];
     
-    // DM to user with reason
+    const answers = {};
+    if (originalEmbed) {
+        const answerFields = originalEmbed.fields.slice(4);
+        const answerKeys = ['fullname', 'age', 'why', 'skills', 'experience', 'availability', 'device'];
+        for (let i = 0; i < answerFields.length && i < answerKeys.length; i++) {
+            answers[answerKeys[i]] = answerFields[i].value;
+        }
+    }
+    
+    const application = {
+        userId: userId,
+        position: position,
+        positionName: positionConfig.name,
+        positionEmoji: positionConfig.emoji,
+        positionColor: positionConfig.color,
+        answers: answers,
+        timestamp: originalEmbed ? new Date(originalEmbed.timestamp).getTime() : Date.now()
+    };
+    
+    // Send to REJECTED channel with reason (NO buttons)
+    const rejectedEmbed = buildApplicationEmbed(application, user, 'rejected');
+    rejectedEmbed.addFields({ name: "❌ Raison du refus", value: `> ${reason}`, inline: false });
+    await sendLog(guild, APP_REJECTED_CHANNEL_ID, rejectedEmbed);
+    
     try {
         const rejectDMEmbed = new EmbedBuilder()
-            .setTitle("❌ Application Denied")
+            .setTitle("❌ Candidature Refusée")
             .setDescription(
-                `**Hello ${member?.user?.username || 'Applicant'}**,\n\n` +
-                `Thank you for applying for **${positionConfig.name}**.\n\n` +
-                `Unfortunately, your application has been **denied** at this time.\n\n` +
-                `**Reason:**\n> ${reason}\n\n` +
-                `You may reapply in **30 days**. Thank you for your interest!`
+                `**Bonjour ${user.username}**,\n\n` +
+                `Nous vous remercions d'avoir postulé pour **${positionConfig.name}**.\n\n` +
+                `Malheureusement, votre candidature n'a pas été retenue pour le moment.\n\n` +
+                `**Raison du refus:**\n> ${reason}\n\n` +
+                `Vous pourrez postuler à nouveau dans 30 jours.\n\n` +
+                `Merci de votre compréhension !`
             )
             .setColor(0xEF4444)
             .setTimestamp();
-        await member?.send({ embeds: [rejectDMEmbed] });
+        await user.send({ embeds: [rejectDMEmbed] });
     } catch (e) {
         console.log(`Could not DM ${userId}`);
     }
     
     await interaction.reply({ 
         embeds: [new EmbedBuilder()
-            .setTitle("❌ Application Denied")
-            .setDescription(`Denied **${member?.user?.tag || userId}** for **${positionConfig.name}**.\n\n**Reason:** ${reason}`)
+            .setTitle("❌ Candidature Refusée")
+            .setDescription(`Vous avez refusé la candidature de **${user.tag}** pour **${positionConfig.name}**.\n\n**Raison:** ${reason}`)
             .setColor(0xEF4444)
         ], 
         ephemeral: false 
     });
     
-    // Disable buttons on original message
-    const originalMessage = client.denyMessageMap?.get(`${userId}_${position}`);
-    if (originalMessage) {
-        const row = ActionRowBuilder.from(originalMessage.components[0]);
+    const originalMessageToDisable = client.denyMessageMap?.get(`${userId}_${position}`);
+    if (originalMessageToDisable) {
+        const row = ActionRowBuilder.from(originalMessageToDisable.components[0]);
         row.components.forEach(component => component.setDisabled(true));
-        await originalMessage.edit({ components: [row] }).catch(() => {});
+        await originalMessageToDisable.edit({ components: [row] }).catch(() => {});
         client.denyMessageMap.delete(`${userId}_${position}`);
     }
 });
