@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Partials, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
 const fs = require('fs');
 
 // ============================================
@@ -38,10 +38,8 @@ const client = new Client({
 });
 
 // ============================================
-// CONFIGURATION
+// TICKET CONFIGURATION (UNCHANGED)
 // ============================================
-
-// Ticket Types
 const TICKET_TYPES = {
     pub: { name: "Public Lounge", emoji: "🍻", color: "#38BDF8", desc: "General discussions & community chats" },
     bugs: { name: "Bug Report", emoji: "🐛", color: "#EF4444", desc: "Report technical issues or glitches" },
@@ -49,7 +47,9 @@ const TICKET_TYPES = {
     server: { name: "Server Support", emoji: "⚙️", color: "#8B5CF6", desc: "Technical support & server inquiries" }
 };
 
-// Application Positions
+// ============================================
+// APPLICATION CONFIGURATION (NEW - DM BASED)
+// ============================================
 const APPLICATION_POSITIONS = {
     staff: { name: "🛠 Staff Team", emoji: "🛠", color: "#5865F2", description: "Help moderate and manage the community" },
     designer: { name: "🎨 Designer", emoji: "🎨", color: "#EB459E", description: "Create graphics and visual content" },
@@ -58,34 +58,28 @@ const APPLICATION_POSITIONS = {
     developer: { name: "💻 Developer", emoji: "💻", color: "#17A2B8", description: "Work on bots and coding projects" }
 };
 
-// Application Questions (same for all positions)
 const APPLICATION_QUESTIONS = [
-    { id: "fullname", label: "Full name", placeholder: "Enter your full name...", style: TextInputStyle.Short, required: true },
-    { id: "age", label: "How old are you?", placeholder: "Enter your age...", style: TextInputStyle.Short, required: true },
-    { id: "why", label: "Why do you want to join this team?", placeholder: "Explain your motivation...", style: TextInputStyle.Paragraph, required: true },
-    { id: "skills", label: "Do you have skills? What are they?", placeholder: "Describe your skills...", style: TextInputStyle.Paragraph, required: true },
-    { id: "experience", label: "Do you have experience?", placeholder: "Tell us about your experience...", style: TextInputStyle.Paragraph, required: true },
-    { id: "availability", label: "How much time can you be online?", placeholder: "e.g., 2-3 hours per day", style: TextInputStyle.Short, required: true },
-    { id: "device", label: "PC or Phone or Both?", placeholder: "PC / Phone / Both", style: TextInputStyle.Short, required: true }
+    { id: "fullname", question: "📝 What is your full name?", example: "Example: John Doe" },
+    { id: "age", question: "🎂 How old are you?", example: "Example: 18" },
+    { id: "why", question: "💭 Why do you want to join the staff team?", example: "Example: I want to help the community grow..." },
+    { id: "skills", question: "🛠️ Do you have skills? What are they?", example: "Example: Graphic design, moderation, coding..." },
+    { id: "experience", question: "📜 Do you have experience?", example: "Example: I was a mod on another server..." },
+    { id: "availability", question: "⏰ How much time can you be online?", example: "Example: 3-4 hours per day" },
+    { id: "device", question: "💻 PC / Phone / Both?", example: "Example: PC" }
 ];
 
 const staffRolesArray = STAFF_ROLES ? STAFF_ROLES.split(',').map(r => r.trim()) : [];
 const activeTickets = new Map();
+const activeApplications = new Map();
 
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
-
 async function sendLog(guild, channelId, embed) {
-    if (!channelId) {
-        console.log(`⚠️ Missing channel ID for log`);
-        return;
-    }
+    if (!channelId) return;
     const channel = guild.channels.cache.get(channelId);
     if (channel) {
         await channel.send({ embeds: [embed] }).catch(err => console.error(`Failed to send log:`, err.message));
-    } else {
-        console.log(`⚠️ Channel not found: ${channelId}`);
     }
 }
 
@@ -127,9 +121,8 @@ function isStaff(member) {
 }
 
 // ============================================
-// PANEL CREATION
+// TICKET PANEL (UNCHANGED)
 // ============================================
-
 async function createTicketPanel(channel) {
     const embed = new EmbedBuilder()
         .setTitle("🌟 SUPPORT TICKET SYSTEM")
@@ -190,6 +183,9 @@ async function createTicketPanel(channel) {
     await channel.send({ embeds: [embed], components: [row1, row2] });
 }
 
+// ============================================
+// APPLICATION PANEL (NEW - SIMPLE BUTTON)
+// ============================================
 async function createApplicationPanel(channel) {
     const embed = new EmbedBuilder()
         .setTitle("📋 STAFF APPLICATION SYSTEM")
@@ -203,23 +199,23 @@ async function createApplicationPanel(channel) {
             `• 🤝 **Partnership** - Handle collaborations and partnerships\n` +
             `• 💻 **Developer** - Work on bots and coding projects\n\n` +
             `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `**📝 REQUIREMENTS**\n` +
+            `**📝 APPLICATION PROCESS**\n` +
+            `1️⃣ Select a position from the dropdown below\n` +
+            `2️⃣ The bot will DM you with questions\n` +
+            `3️⃣ Answer each question in the DM\n` +
+            `4️⃣ Your application will be submitted for review\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+            `**✅ REQUIREMENTS**\n` +
             `• Be active and responsible\n` +
             `• Have good communication skills\n` +
             `• Follow server rules and guidelines\n` +
             `• Be at least 13 years old (Discord ToS)\n\n` +
             `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `**✅ HOW TO APPLY**\n` +
-            `• Select a position from the dropdown below\n` +
-            `• Fill out the application form\n` +
-            `• Submit your application\n` +
-            `• Staff will review and contact you\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
             `*Select a position to begin your application* 🚀`
         )
         .setColor(0x2b2d31)
         .setImage(BANNER_URL)
-        .setFooter({ text: "Staff Application System • Reviewed within 48h", iconURL: client.user.displayAvatarURL() })
+        .setFooter({ text: "Staff Application System • DM Based", iconURL: client.user.displayAvatarURL() })
         .setTimestamp();
 
     const selectMenu = new StringSelectMenuBuilder()
@@ -258,69 +254,211 @@ async function createApplicationPanel(channel) {
 }
 
 // ============================================
-// APPLICATION SUBMISSION
+// APPLICATION DM HANDLER
 // ============================================
+async function startApplication(user, position) {
+    const positionConfig = APPLICATION_POSITIONS[position];
+    if (!positionConfig) return false;
+    
+    // Check if user already has an active application
+    if (activeApplications.has(user.id)) {
+        await user.send("❌ You already have an active application in progress. Please complete or cancel it first.\nType `cancel` to cancel your current application.")
+            .catch(() => {});
+        return false;
+    }
+    
+    // Create new application session
+    const application = {
+        userId: user.id,
+        position: position,
+        positionName: positionConfig.name,
+        positionEmoji: positionConfig.emoji,
+        positionColor: positionConfig.color,
+        step: 0,
+        answers: {},
+        timestamp: Date.now()
+    };
+    
+    activeApplications.set(user.id, application);
+    
+    // Send welcome message
+    const welcomeEmbed = new EmbedBuilder()
+        .setTitle(`${positionConfig.emoji} Staff Application - ${positionConfig.name}`)
+        .setDescription(
+            `**Welcome to the application process!**\n\n` +
+            `I will ask you **${APPLICATION_QUESTIONS.length} questions**.\n` +
+            `Please answer each question honestly.\n\n` +
+            `**Type \`cancel\` at any time to cancel your application.**\n\n` +
+            `Let's begin! 🚀`
+        )
+        .setColor(positionConfig.color)
+        .setTimestamp();
+    
+    await user.send({ embeds: [welcomeEmbed] }).catch(() => {
+        activeApplications.delete(user.id);
+        return false;
+    });
+    
+    // Send first question
+    await sendNextQuestion(user.id);
+    return true;
+}
 
-async function sendApplicationForReview(guild, application) {
-    const reviewChannel = guild.channels.cache.get(APP_REVIEW_CHANNEL_ID);
-    if (!reviewChannel) {
-        console.error(`❌ Review channel not found! ID: ${APP_REVIEW_CHANNEL_ID}`);
+async function sendNextQuestion(userId) {
+    const application = activeApplications.get(userId);
+    if (!application) return;
+    
+    if (application.step >= APPLICATION_QUESTIONS.length) {
+        // Application complete - submit for review
+        await submitApplication(userId);
         return;
     }
+    
+    const question = APPLICATION_QUESTIONS[application.step];
+    const questionEmbed = new EmbedBuilder()
+        .setTitle(`📝 Question ${application.step + 1}/${APPLICATION_QUESTIONS.length}`)
+        .setDescription(`**${question.question}**\n\n\`\`\`${question.example}\`\`\``)
+        .setColor(0x5865F2)
+        .setFooter({ text: "Type your answer below • Type 'cancel' to cancel" });
+    
+    const user = await client.users.fetch(userId).catch(() => null);
+    if (user) {
+        await user.send({ embeds: [questionEmbed] }).catch(() => {
+            activeApplications.delete(userId);
+        });
+    }
+}
 
-    const position = APPLICATION_POSITIONS[application.position];
+async function processAnswer(userId, answer) {
+    const application = activeApplications.get(userId);
+    if (!application) return;
+    
+    // Save answer
+    const currentQuestion = APPLICATION_QUESTIONS[application.step];
+    application.answers[currentQuestion.id] = answer;
+    application.step++;
+    activeApplications.set(userId, application);
+    
+    // Send next question or complete
+    await sendNextQuestion(userId);
+}
+
+async function submitApplication(userId) {
+    const application = activeApplications.get(userId);
+    if (!application) return;
+    
+    const user = await client.users.fetch(userId).catch(() => null);
+    if (!user) {
+        activeApplications.delete(userId);
+        return;
+    }
+    
+    const guild = client.guilds.cache.get(GUILD_ID);
+    if (!guild) {
+        console.error("Guild not found!");
+        activeApplications.delete(userId);
+        return;
+    }
+    
+    const reviewChannel = guild.channels.cache.get(APP_REVIEW_CHANNEL_ID);
+    if (!reviewChannel) {
+        console.error("Review channel not found!");
+        await user.send("❌ Failed to submit application. Please contact an administrator.");
+        activeApplications.delete(userId);
+        return;
+    }
+    
+    // Create embed for review channel
+    const positionConfig = APPLICATION_POSITIONS[application.position];
     
     const embed = new EmbedBuilder()
-        .setTitle(`${position.emoji} NEW APPLICATION - ${position.name}`)
+        .setTitle(`${positionConfig.emoji} NEW APPLICATION - ${positionConfig.name}`)
         .setDescription(
-            `**Applicant:** ${application.userTag} (<@${application.userId}>)\n` +
-            `**Position:** ${position.name}\n` +
-            `**Applied:** <t:${Math.floor(application.timestamp / 1000)}:F>\n` +
-            `**User ID:** \`${application.userId}\``
+            `**Applicant:** ${user.tag} (<@${userId}>)\n` +
+            `**Position:** ${positionConfig.name}\n` +
+            `**Submitted:** <t:${Math.floor(application.timestamp / 1000)}:F>\n` +
+            `**User ID:** \`${userId}\``
         )
-        .setColor(position.color)
-        .setThumbnail(application.userAvatar)
+        .setColor(positionConfig.color)
+        .setThumbnail(user.displayAvatarURL({ dynamic: true, size: 256 }))
         .setImage(BANNER_URL)
         .setTimestamp();
-
+    
     const questionLabels = {
         fullname: "Full name",
         age: "Age",
-        why: "Why join this team?",
+        why: "Why join staff team?",
         skills: "Skills",
         experience: "Experience",
         availability: "Availability",
         device: "Device"
     };
-
-    for (const [question, answer] of Object.entries(application.answers)) {
-        const label = questionLabels[question] || question;
+    
+    for (const [key, value] of Object.entries(application.answers)) {
+        const label = questionLabels[key] || key;
         embed.addFields({ 
             name: `📌 ${label}`, 
-            value: answer.length > 1024 ? answer.substring(0, 1021) + '...' : answer || "Not provided", 
+            value: value.length > 1024 ? value.substring(0, 1021) + '...' : value, 
             inline: false 
         });
     }
-
+    
     const buttons = new ActionRowBuilder()
         .addComponents(
             new ButtonBuilder()
-                .setCustomId(`app_approve_${application.userId}_${application.position}`)
+                .setCustomId(`app_approve_${userId}_${application.position}`)
                 .setLabel('Approve')
                 .setEmoji('✅')
                 .setStyle(ButtonStyle.Success),
             new ButtonBuilder()
-                .setCustomId(`app_deny_${application.userId}_${application.position}`)
+                .setCustomId(`app_deny_${userId}_${application.position}`)
                 .setLabel('Deny')
                 .setEmoji('❌')
                 .setStyle(ButtonStyle.Danger),
             new ButtonBuilder()
                 .setLabel('View Profile')
-                .setURL(`https://discord.com/users/${application.userId}`)
+                .setURL(`https://discord.com/users/${userId}`)
                 .setStyle(ButtonStyle.Link)
         );
-
+    
     await reviewChannel.send({ embeds: [embed], components: [buttons] });
+    
+    // Send confirmation to user
+    const confirmEmbed = new EmbedBuilder()
+        .setTitle("✅ APPLICATION SUBMITTED")
+        .setDescription(
+            `> Your application for **${positionConfig.name}** has been submitted!\n\n` +
+            `**What happens next?**\n` +
+            `• Our team will review your application within 48 hours\n` +
+            `• You will be contacted via DM if you're selected\n` +
+            `• Please be patient\n\n` +
+            `Thank you for your interest! 🎉`
+        )
+        .setColor(0x22C55E)
+        .setTimestamp();
+    
+    await user.send({ embeds: [confirmEmbed] }).catch(() => {});
+    
+    // Clean up
+    activeApplications.delete(userId);
+}
+
+async function cancelApplication(userId) {
+    const application = activeApplications.get(userId);
+    if (!application) return false;
+    
+    activeApplications.delete(userId);
+    
+    const user = await client.users.fetch(userId).catch(() => null);
+    if (user) {
+        const cancelEmbed = new EmbedBuilder()
+            .setTitle("❌ Application Cancelled")
+            .setDescription("Your application has been cancelled. You can start a new application anytime.")
+            .setColor(0xEF4444)
+            .setTimestamp();
+        await user.send({ embeds: [cancelEmbed] }).catch(() => {});
+    }
+    return true;
 }
 
 // ============================================
@@ -328,7 +466,7 @@ async function sendApplicationForReview(guild, application) {
 // ============================================
 client.once('ready', async () => {
     console.log(`✨ ${client.user.tag} is online!`);
-    console.log(`📋 Ticket & Application Bot - Version 4.0`);
+    console.log(`📋 Ticket & DM-Based Application Bot`);
     
     const guild = client.guilds.cache.get(GUILD_ID);
     if (!guild) {
@@ -344,8 +482,6 @@ client.once('ready', async () => {
             if (messages.size) await ticketPanelChannel.bulkDelete(messages).catch(() => {});
             await createTicketPanel(ticketPanelChannel);
             console.log("✅ Ticket panel deployed!");
-        } else {
-            console.warn("⚠️ Ticket panel channel not found!");
         }
     }
 
@@ -357,8 +493,6 @@ client.once('ready', async () => {
             if (messages.size) await appPanelChannel.bulkDelete(messages).catch(() => {});
             await createApplicationPanel(appPanelChannel);
             console.log("✅ Application panel deployed!");
-        } else {
-            console.warn("⚠️ Application panel channel not found!");
         }
     }
 
@@ -366,7 +500,7 @@ client.once('ready', async () => {
 });
 
 // ============================================
-// TICKET SYSTEM - BUTTON HANDLER
+// TICKET SYSTEM - BUTTON HANDLER (UNCHANGED)
 // ============================================
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
@@ -377,7 +511,6 @@ client.on('interactionCreate', async (interaction) => {
         const typeConfig = TICKET_TYPES[type];
         if (!typeConfig) return;
         
-        // Check for existing open ticket
         for (const [id, data] of activeTickets) {
             if (data.userId === interaction.user.id) {
                 const errorEmbed = new EmbedBuilder()
@@ -456,7 +589,6 @@ client.on('interactionCreate', async (interaction) => {
             const mentionText = `${interaction.user} | ${staffRolesArray.map(id => `<@&${id}>`).join(', ')}`;
             await ticketChannel.send({ content: mentionText, embeds: [welcomeEmbed], components: [actionRow] });
             
-            // Send log
             const logEmbed = new EmbedBuilder()
                 .setTitle("🎫 TICKET OPENED")
                 .setDescription(`**User:** ${interaction.user.tag}\n**Type:** ${typeConfig.name}\n**Channel:** ${ticketChannel}`)
@@ -481,20 +613,17 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
     
-    // CLOSE TICKET - DELETE IMMEDIATELY WITHOUT MESSAGE
+    // CLOSE TICKET
     else if (interaction.customId === 'close_ticket') {
         const ticketData = activeTickets.get(interaction.channel.id);
         if (!ticketData) {
             return interaction.reply({ content: "❌ This is not a valid ticket channel.", ephemeral: true });
         }
         
-        // Acknowledge the interaction silently
         await interaction.deferReply({ ephemeral: true });
         
-        // Generate transcript
         const transcriptPath = await generateTranscript(interaction.channel, ticketData);
         
-        // Send transcript to log channel
         if (transcriptPath && TRANSCRIPT_CHANNEL_ID) {
             const transcriptChannel = interaction.guild.channels.cache.get(TRANSCRIPT_CHANNEL_ID);
             if (transcriptChannel) {
@@ -507,7 +636,6 @@ client.on('interactionCreate', async (interaction) => {
             }
         }
         
-        // Send close log
         const logEmbed = new EmbedBuilder()
             .setTitle("🔒 TICKET CLOSED")
             .setDescription(`**User:** ${ticketData.userTag}\n**Closed by:** ${interaction.user.tag}\n**Channel:** #${interaction.channel.name}`)
@@ -515,7 +643,6 @@ client.on('interactionCreate', async (interaction) => {
             .setTimestamp();
         await sendLog(interaction.guild, TICKET_LOG_CHANNEL_ID, logEmbed);
         
-        // Delete the channel immediately
         try {
             await interaction.channel.delete();
             activeTickets.delete(interaction.channel.id);
@@ -568,7 +695,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================
-// APPLICATION SYSTEM - DROPDOWN HANDLER (FIXED)
+// APPLICATION SYSTEM - DROPDOWN HANDLER (NEW)
 // ============================================
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isStringSelectMenu()) return;
@@ -578,117 +705,68 @@ client.on('interactionCreate', async (interaction) => {
     const positionConfig = APPLICATION_POSITIONS[selectedPosition];
     
     if (!positionConfig) {
-        console.error(`Unknown position: ${selectedPosition}`);
-        return interaction.reply({ content: "❌ An error occurred. Please try again.", ephemeral: true });
+        return interaction.reply({ content: "❌ Invalid position selected.", ephemeral: true });
     }
     
-    // Create modal
-    const modal = new ModalBuilder()
-        .setCustomId(`apply_modal_${selectedPosition}`)
-        .setTitle(`${positionConfig.emoji} ${positionConfig.name} Application`);
-    
-    // Add all questions
-    const rows = [];
-    for (const question of APPLICATION_QUESTIONS) {
-        const input = new TextInputBuilder()
-            .setCustomId(question.id)
-            .setLabel(question.label)
-            .setStyle(question.style)
-            .setRequired(question.required)
-            .setPlaceholder(question.placeholder)
-            .setMaxLength(question.style === TextInputStyle.Paragraph ? 1500 : 100);
-        
-        const row = new ActionRowBuilder().addComponents(input);
-        rows.push(row);
-    }
-    
-    modal.addComponents(rows);
-    
+    // Check if user has DMs enabled
+    const user = interaction.user;
     try {
-        await interaction.showModal(modal);
+        await user.send({ content: "Starting application process..." });
     } catch (error) {
-        console.error(`Error showing modal: ${error.message}`);
-        await interaction.reply({ content: "❌ Failed to open application form. Please try again.", ephemeral: true });
+        return interaction.reply({ 
+            content: "❌ I cannot send you a DM. Please enable DMs from server members and try again.", 
+            ephemeral: true 
+        });
+    }
+    
+    // Start the application process
+    const success = await startApplication(user, selectedPosition);
+    
+    if (success) {
+        await interaction.reply({ 
+            content: `✅ Application process started! Please check your DMs (<@${user.id}>). You will be asked ${APPLICATION_QUESTIONS.length} questions.`,
+            ephemeral: true 
+        });
+    } else {
+        await interaction.reply({ 
+            content: "❌ Failed to start application. You may already have an active application. Type `cancel` in DMs to cancel it.",
+            ephemeral: true 
+        });
     }
 });
 
 // ============================================
-// APPLICATION SYSTEM - MODAL SUBMIT HANDLER
+// DM MESSAGE HANDLER - PROCESS ANSWERS
 // ============================================
-client.on('interactionCreate', async (interaction) => {
-    if (!interaction.isModalSubmit()) return;
-    if (!interaction.customId.startsWith('apply_modal_')) return;
+client.on('messageCreate', async (message) => {
+    if (message.author.bot) return;
+    if (message.guild) return; // Only process DMs
     
-    const position = interaction.customId.replace('apply_modal_', '');
-    const positionConfig = APPLICATION_POSITIONS[position];
+    const userId = message.author.id;
+    const content = message.content.trim();
     
-    if (!positionConfig) {
-        console.error(`Unknown position from modal: ${position}`);
-        return interaction.reply({ content: "❌ An error occurred. Please try again.", ephemeral: true });
-    }
-    
-    // Collect answers
-    const answers = {};
-    for (const question of APPLICATION_QUESTIONS) {
-        try {
-            answers[question.id] = interaction.fields.getTextInputValue(question.id);
-        } catch (error) {
-            answers[question.id] = "Not provided";
+    // Check for cancel command
+    if (content.toLowerCase() === 'cancel') {
+        const cancelled = await cancelApplication(userId);
+        if (cancelled) {
+            await message.reply("✅ Your application has been cancelled.");
+        } else {
+            await message.reply("❌ You don't have an active application to cancel.");
         }
+        return;
     }
     
-    const application = {
-        position: position,
-        userId: interaction.user.id,
-        userTag: interaction.user.tag,
-        userAvatar: interaction.user.displayAvatarURL(),
-        timestamp: Date.now(),
-        answers: answers
-    };
+    // Check if user has an active application
+    const application = activeApplications.get(userId);
+    if (!application) return;
     
-    try {
-        // Send to review channel
-        await sendApplicationForReview(interaction.guild, application);
-        
-        const successEmbed = new EmbedBuilder()
-            .setTitle("✅ APPLICATION SUBMITTED")
-            .setDescription(
-                `> Your application for **${positionConfig.name}** has been submitted!\n\n` +
-                `**What happens next?**\n` +
-                `• Our team will review your application within 48 hours\n` +
-                `• You will be contacted via DM if you're selected\n` +
-                `• Please be patient and do not DM staff about your application\n\n` +
-                `Thank you for your interest in joining our team! 🎉`
-            )
-            .setColor(0x22C55E)
-            .setImage(BANNER_URL)
-            .setTimestamp();
-        
-        await interaction.reply({ embeds: [successEmbed], ephemeral: true });
-        
-        // Send DM confirmation
-        try {
-            const dmEmbed = new EmbedBuilder()
-                .setTitle("📋 Application Received")
-                .setDescription(
-                    `Thank you for applying for **${positionConfig.name}**!\n\n` +
-                    `**Application Details:**\n` +
-                    `• Position: ${positionConfig.name}\n` +
-                    `• Submitted: <t:${Math.floor(Date.now() / 1000)}:F>\n\n` +
-                    `Your application is now under review. You will receive a response within 48 hours.\n\n` +
-                    `Good luck! 🍀`
-                )
-                .setColor(positionConfig.color)
-                .setTimestamp();
-            await interaction.user.send({ embeds: [dmEmbed] });
-        } catch (e) {
-            console.log(`Could not DM ${interaction.user.tag}`);
-        }
-        
-    } catch (error) {
-        console.error(`Error submitting application: ${error.message}`);
-        await interaction.reply({ content: "❌ Failed to submit application. Please try again later.", ephemeral: true });
+    // Process the answer
+    if (content.length < 1) {
+        await message.reply("❌ Please provide a valid answer.");
+        return;
     }
+    
+    await processAnswer(userId, content);
 });
 
 // ============================================
@@ -786,6 +864,7 @@ client.on('interactionCreate', async (interaction) => {
     const position = parts[3];
     
     // Create modal for rejection reason
+    const { ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
     const modal = new ModalBuilder()
         .setCustomId(`reject_modal_${userId}_${position}`)
         .setTitle("Deny Application");
