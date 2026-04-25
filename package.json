@@ -1,6 +1,6 @@
 {
   "name": "ticket-application-bot",
-  "version": "7.0.0",
+  "version": "8.1.0",
   "description": "Professional ticket system with multi-role staff support and DM-based applications",
   "main": "index.js",
   "scripts": {
