@@ -7,7 +7,8 @@ const fs = require('fs');
 const {
     BOT_TOKEN,
     GUILD_ID,
-    LOG_CHANNEL_ID,
+    TICKET_LOG_CHANNEL_ID,
+    APPLICATION_LOG_CHANNEL_ID,
     TRANSCRIPT_CHANNEL_ID,
     TICKET_CATEGORY_ID,
     TICKET_PANEL_CHANNEL_ID,
@@ -51,11 +52,50 @@ const APPLICATION_POSITIONS = {
 
 const staffRolesArray = STAFF_ROLES ? STAFF_ROLES.split(',').map(r => r.trim()) : [];
 const activeTickets = new Map();
-const pendingModals = new Map();
 
 // ============================================
-// HELPER FUNCTIONS
+// LOGGING FUNCTIONS (SEPARATED)
 // ============================================
+
+// Send ticket log (uses TICKET_LOG_CHANNEL_ID)
+async function sendTicketLog(guild, title, description, color = 0x2b2d31, fields = []) {
+    const logChannel = guild.channels.cache.get(TICKET_LOG_CHANNEL_ID);
+    if (!logChannel) {
+        console.error(`❌ Ticket log channel not found! ID: ${TICKET_LOG_CHANNEL_ID}`);
+        return;
+    }
+    
+    const embed = new EmbedBuilder()
+        .setTitle(`🎫 ${title}`)
+        .setDescription(`\`\`\`yaml\n${description}\n\`\`\``)
+        .setColor(color)
+        .setTimestamp()
+        .setFooter({ text: "Ticket System • Logged" });
+    
+    if (fields.length) embed.addFields(fields);
+    
+    await logChannel.send({ embeds: [embed] });
+}
+
+// Send application log (uses APPLICATION_LOG_CHANNEL_ID)
+async function sendApplicationLog(guild, title, description, color = 0x2b2d31, fields = []) {
+    const logChannel = guild.channels.cache.get(APPLICATION_LOG_CHANNEL_ID);
+    if (!logChannel) {
+        console.error(`❌ Application log channel not found! ID: ${APPLICATION_LOG_CHANNEL_ID}`);
+        return;
+    }
+    
+    const embed = new EmbedBuilder()
+        .setTitle(`📋 ${title}`)
+        .setDescription(`\`\`\`yaml\n${description}\n\`\`\``)
+        .setColor(color)
+        .setTimestamp()
+        .setFooter({ text: "Application System • Logged" });
+    
+    if (fields.length) embed.addFields(fields);
+    
+    await logChannel.send({ embeds: [embed] });
+}
 
 // Generate ticket transcript
 async function generateTranscript(channel) {
@@ -84,23 +124,6 @@ async function generateTranscript(channel) {
     const filePath = `/tmp/transcript-${channel.id}-${Date.now()}.txt`;
     fs.writeFileSync(filePath, transcript);
     return filePath;
-}
-
-// Send log to log channel
-async function sendLog(guild, title, description, color = 0x2b2d31, fields = []) {
-    const logChannel = guild.channels.cache.get(LOG_CHANNEL_ID);
-    if (!logChannel) return;
-    
-    const embed = new EmbedBuilder()
-        .setTitle(title)
-        .setDescription(`\`\`\`yaml\n${description}\n\`\`\``)
-        .setColor(color)
-        .setTimestamp()
-        .setFooter({ text: "Premium System • Logged" });
-    
-    if (fields.length) embed.addFields(fields);
-    
-    await logChannel.send({ embeds: [embed] });
 }
 
 // Check if user is staff
@@ -246,9 +269,9 @@ async function createApplicationPanel(channel) {
 // ============================================
 
 async function sendApplicationForReview(guild, application) {
-    const reviewChannel = guild.channels.cache.get(LOG_CHANNEL_ID);
+    const reviewChannel = guild.channels.cache.get(APPLICATION_LOG_CHANNEL_ID);
     if (!reviewChannel) {
-        console.error("Review channel not found!");
+        console.error(`❌ Application log channel not found for review! ID: ${APPLICATION_LOG_CHANNEL_ID}`);
         return;
     }
 
@@ -312,6 +335,10 @@ client.once('ready', async () => {
         return;
     }
 
+    // Validate log channels
+    if (!TICKET_LOG_CHANNEL_ID) console.warn("⚠️ TICKET_LOG_CHANNEL_ID not set!");
+    if (!APPLICATION_LOG_CHANNEL_ID) console.warn("⚠️ APPLICATION_LOG_CHANNEL_ID not set!");
+    
     // Setup ticket panel
     const ticketPanelChannel = client.channels.cache.get(TICKET_PANEL_CHANNEL_ID);
     if (ticketPanelChannel) {
@@ -425,7 +452,8 @@ client.on('interactionCreate', async (interaction) => {
             const mentionText = `${interaction.user} | ${staffRolesArray.map(id => `<@&${id}>`).join(', ')}`;
             await ticketChannel.send({ content: mentionText, embeds: [welcomeEmbed], components: [actionRow] });
             
-            await sendLog(interaction.guild, "TICKET OPENED", `User: ${interaction.user.tag}\nType: ${typeConfig.name}\nChannel: #${ticketChannel.name}`, 0x22C55E);
+            // Send to TICKET log channel
+            await sendTicketLog(interaction.guild, "TICKET OPENED", `User: ${interaction.user.tag}\nType: ${typeConfig.name}\nChannel: #${ticketChannel.name}`, 0x22C55E);
             
             const successEmbed = new EmbedBuilder()
                 .setTitle("✅ TICKET CREATED")
@@ -459,7 +487,7 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.reply({ embeds: [closeEmbed] });
         
         const transcriptPath = await generateTranscript(interaction.channel);
-        const transcriptChannel = interaction.guild.channels.cache.get(TRANSCRIPT_CHANNEL_ID || LOG_CHANNEL_ID);
+        const transcriptChannel = interaction.guild.channels.cache.get(TRANSCRIPT_CHANNEL_ID || TICKET_LOG_CHANNEL_ID);
         
         if (transcriptChannel) {
             const transcriptEmbed = new EmbedBuilder()
@@ -471,7 +499,8 @@ client.on('interactionCreate', async (interaction) => {
             await transcriptChannel.send({ embeds: [transcriptEmbed], files: [transcriptPath] });
         }
         
-        await sendLog(interaction.guild, "TICKET CLOSED", `User: ${ticketData.userTag}\nClosed by: ${interaction.user.tag}\nChannel: #${interaction.channel.name}`, 0xEF4444);
+        // Send to TICKET log channel
+        await sendTicketLog(interaction.guild, "TICKET CLOSED", `User: ${ticketData.userTag}\nClosed by: ${interaction.user.tag}\nChannel: #${interaction.channel.name}`, 0xEF4444);
         
         setTimeout(async () => {
             try {
@@ -517,7 +546,8 @@ client.on('interactionCreate', async (interaction) => {
         
         await interaction.reply({ embeds: [claimEmbed] });
         
-        await sendLog(interaction.guild, "TICKET CLAIMED", `Channel: #${interaction.channel.name}\nStaff: ${interaction.user.tag}\nTicket Owner: ${ticketData.userTag}`, 0x3B82F6);
+        // Send to TICKET log channel
+        await sendTicketLog(interaction.guild, "TICKET CLAIMED", `Channel: #${interaction.channel.name}\nStaff: ${interaction.user.tag}\nTicket Owner: ${ticketData.userTag}`, 0x3B82F6);
     }
 });
 
@@ -672,8 +702,11 @@ client.on('interactionCreate', async (interaction) => {
         answers: answers
     };
     
-    // Send to review channel
+    // Send to review channel (APPLICATION_LOG_CHANNEL_ID)
     await sendApplicationForReview(interaction.guild, application);
+    
+    // Send to APPLICATION log channel as log entry
+    await sendApplicationLog(interaction.guild, "APPLICATION SUBMITTED", `User: ${interaction.user.tag}\nPosition: ${positionConfig.name}\nUser ID: ${interaction.user.id}`, positionConfig.color);
     
     const successEmbed = new EmbedBuilder()
         .setTitle("✅ APPLICATION SUBMITTED")
@@ -707,7 +740,6 @@ client.on('interactionCreate', async (interaction) => {
             .setTimestamp();
         await interaction.user.send({ embeds: [dmEmbed] });
     } catch (e) {
-        // User has DMs disabled
         console.log(`Could not DM ${interaction.user.tag}`);
     }
 });
@@ -759,7 +791,8 @@ client.on('interactionCreate', async (interaction) => {
             if (member) await member.send({ embeds: [approveEmbed] });
         } catch (e) {}
         
-        await sendLog(guild, "APPLICATION APPROVED", `User: ${member?.user?.tag || userId}\nPosition: ${positionConfig.name}\nReviewed by: ${interaction.user.tag}`, 0x22C55E);
+        // Send to APPLICATION log channel
+        await sendApplicationLog(guild, "APPLICATION APPROVED", `User: ${member?.user?.tag || userId}\nPosition: ${positionConfig.name}\nReviewed by: ${interaction.user.tag}`, 0x22C55E);
         
     } else if (action === 'deny') {
         const denyEmbed = new EmbedBuilder()
@@ -789,7 +822,8 @@ client.on('interactionCreate', async (interaction) => {
             if (member) await member.send({ embeds: [denyEmbed] });
         } catch (e) {}
         
-        await sendLog(guild, "APPLICATION DENIED", `User: ${member?.user?.tag || userId}\nPosition: ${positionConfig.name}\nReviewed by: ${interaction.user.tag}`, 0xEF4444);
+        // Send to APPLICATION log channel
+        await sendApplicationLog(guild, "APPLICATION DENIED", `User: ${member?.user?.tag || userId}\nPosition: ${positionConfig.name}\nReviewed by: ${interaction.user.tag}`, 0xEF4444);
     }
     
     // Disable buttons after review
@@ -805,7 +839,7 @@ process.on('unhandledRejection', (error) => {
     console.error('Unhandled promise rejection:', error);
 });
 
-process.on('uncaughtException', (error) => {
+process.on('uncaughtException', (error) {
     console.error('Uncaught exception:', error);
 });
 
