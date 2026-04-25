@@ -766,4 +766,50 @@ client.on('interactionCreate', async (interaction) => {
             .setTitle("❌ APPLICATION DENIED")
             .setDescription(
                 `> Thank you for applying for **${positionConfig.name}**.\n\n` +
-                `Unfortunately, your application has been **denied** at this
+                `Unfortunately, your application has been **denied** at this time.\n\n` +
+                `**Reasons may include:**\n` +
+                `• Not meeting the requirements\n` +
+                `• Limited availability\n` +
+                `• Better suited candidates\n\n` +
+                `You may reapply in **30 days**. Thank you for your interest!`
+            )
+            .setColor(0xEF4444)
+            .setTimestamp();
+        
+        await interaction.reply({ 
+            embeds: [new EmbedBuilder()
+                .setTitle("❌ Application Denied")
+                .setDescription(`Denied **${member?.user?.tag || userId}** for **${positionConfig.name}**.`)
+                .setColor(0xEF4444)
+            ], 
+            ephemeral: false 
+        });
+        
+        try {
+            if (member) await member.send({ embeds: [denyEmbed] });
+        } catch (e) {}
+        
+        await sendLog(guild, "APPLICATION DENIED", `User: ${member?.user?.tag || userId}\nPosition: ${positionConfig.name}\nReviewed by: ${interaction.user.tag}`, 0xEF4444);
+    }
+    
+    // Disable buttons after review
+    const row = ActionRowBuilder.from(interaction.message.components[0]);
+    row.components.forEach(component => component.setDisabled(true));
+    await interaction.message.edit({ components: [row] });
+});
+
+// ============================================
+// ERROR HANDLING
+// ============================================
+process.on('unhandledRejection', (error) => {
+    console.error('Unhandled promise rejection:', error);
+});
+
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught exception:', error);
+});
+
+// ============================================
+// LOGIN
+// ============================================
+client.login(BOT_TOKEN);
