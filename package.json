@@ -1,19 +1,15 @@
 {
   "name": "premium-ticket-app-bot",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Professional ticket system with staff application system",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "node index.js"
+    "start": "node index.js"
   },
   "dependencies": {
     "discord.js": "^14.14.1"
   },
   "engines": {
     "node": ">=18.0.0"
-  },
-  "keywords": ["discord", "bot", "ticket", "applications", "premium"],
-  "author": "",
-  "license": "MIT"
+  }
 }
