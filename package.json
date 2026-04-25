@@ -1,7 +1,7 @@
 {
-  "name": "premium-ticket-app-bot",
-  "version": "2.1.0",
-  "description": "Professional ticket system with staff application system",
+  "name": "ticket-application-bot",
+  "version": "3.0.0",
+  "description": "Professional ticket system with French staff application system",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
