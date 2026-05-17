@@ -51,13 +51,14 @@ const TICKET_TYPES = {
 
 const APPLICATION_POSITIONS = {
     staff: { name: "🛠 Staff Team", emoji: "🛠", color: "#5865F2", description: "Help moderate and manage the community" },
-    designer: { name: "🎨 Designer", emoji: "🎨", color: "#EB459E", description: "Create graphics and visual content" },
+    wallpaper: { name: "🖼 Wallpaper Uploader", emoji: "🖼", color: "#9C27B0", description: "Submit high-quality PC and mobile wallpapers" },
     event: { name: "🎉 Event Hoster", emoji: "🎉", color: "#FEE75C", description: "Organize fun community events" },
     partnership: { name: "🤝 Partnership", emoji: "🤝", color: "#57F287", description: "Handle collaborations and partnerships" },
     developer: { name: "💻 Developer", emoji: "💻", color: "#17A2B8", description: "Work on bots and coding projects" }
 };
 
-const APPLICATION_QUESTIONS = [
+// Standard staff application questions (for non-wallpaper positions)
+const STANDARD_APPLICATION_QUESTIONS = [
     { id: "fullname", question: "📝 What is your full name?", example: "Example: John Doe" },
     { id: "age", question: "🎂 How old are you?", example: "Example: 18" },
     { id: "why", question: "💭 Why do you want to join the staff team?", example: "Example: I want to help the community grow..." },
@@ -65,6 +66,16 @@ const APPLICATION_QUESTIONS = [
     { id: "experience", question: "📜 Do you have experience?", example: "Example: I was a mod on another server..." },
     { id: "availability", question: "⏰ How much time can you be online?", example: "Example: 3-4 hours per day" },
     { id: "device", question: "💻 PC / Phone / Both?", example: "Example: PC" }
+];
+
+// Custom questions for Wallpaper Uploader position
+const WALLPAPER_APPLICATION_QUESTIONS = [
+    { id: "type", question: "🖼 What type of wallpapers do you upload?", example: "Example: Gaming, Nature, Anime, Abstract, Minimalist, etc." },
+    { id: "platform", question: "📱 PC or Mobile wallpapers? (Or both)", example: "Example: Both, PC (1920x1080), Mobile (1080x2340)" },
+    { id: "origin", question: "🎨 Do you create wallpapers or collect them from other sources?", example: "Example: I create my own using Photoshop / I collect from various artists (with credit)" },
+    { id: "portfolio", question: "🔗 Send wallpaper examples or portfolio links", example: "Example: https://imgur.com/a/..., https://deviantart.com/..." },
+    { id: "activity", question: "⏱️ How active will you be uploading wallpapers? (Weekly / Daily)", example: "Example: I will upload 5-10 wallpapers per week" },
+    { id: "motivation", question: "💡 Why do you want to upload wallpapers in this server?", example: "Example: I love sharing art and want to help grow the wallpaper community here." }
 ];
 
 // Parse multiple roles from comma-separated strings
@@ -247,7 +258,7 @@ function buildApplicationEmbed(application, user, status = null, reason = null) 
     const isRejected = status === 'rejected';
     
     let title = `${positionConfig.emoji} NEW APPLICATION - ${positionConfig.name}`;
-    let color = positionConfig.color;
+    let color = typeof positionConfig.color === 'string' ? parseInt(positionConfig.color.replace('#', ''), 16) : positionConfig.color;
     let footerText = "Application awaiting review";
     
     if (isAccepted) {
@@ -274,7 +285,10 @@ function buildApplicationEmbed(application, user, status = null, reason = null) 
         .setTimestamp()
         .setFooter({ text: footerText });
     
-    const questionLabels = {
+    // Define labels based on position type
+    const isWallpaper = application.position === 'wallpaper';
+    
+    const standardLabels = {
         fullname: "📝 Full name",
         age: "🎂 Age",
         why: "💭 Why join staff team?",
@@ -284,8 +298,19 @@ function buildApplicationEmbed(application, user, status = null, reason = null) 
         device: "💻 Device"
     };
     
+    const wallpaperLabels = {
+        type: "🖼 Wallpaper Types",
+        platform: "📱 Platform",
+        origin: "🎨 Origin (Created/Collected)",
+        portfolio: "🔗 Portfolio / Examples",
+        activity: "⏱️ Upload Activity",
+        motivation: "💡 Motivation"
+    };
+    
+    const labels = isWallpaper ? wallpaperLabels : standardLabels;
+    
     for (const [key, value] of Object.entries(application.answers)) {
-        const label = questionLabels[key] || key;
+        const label = labels[key] || key;
         embed.addFields({ 
             name: label, 
             value: value.length > 1024 ? value.substring(0, 1021) + '...' : value, 
@@ -369,13 +394,13 @@ async function createApplicationPanel(channel) {
     await safeChannelBulkDelete(channel, 10);
     
     const embed = new EmbedBuilder()
-        .setTitle("📋 STAFF APPLICATION SYSTEM")
+        .setTitle("📋 STAFF & CONTRIBUTOR APPLICATION SYSTEM")
         .setDescription(
             `> **Join our team and help shape the community!**\n\n` +
             `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
             `**📌 AVAILABLE POSITIONS**\n` +
             `• 🛠 **Staff Team** - Moderate and manage the server\n` +
-            `• 🎨 **Designer** - Create graphics and visual content\n` +
+            `• 🖼 **Wallpaper Uploader** - Submit high-quality PC and mobile wallpapers\n` +
             `• 🎉 **Event Hoster** - Organize fun community events\n` +
             `• 🤝 **Partnership** - Handle collaborations and partnerships\n` +
             `• 💻 **Developer** - Work on bots and coding projects\n\n` +
@@ -396,7 +421,7 @@ async function createApplicationPanel(channel) {
         )
         .setColor(0x2b2d31)
         .setImage(BANNER_URL)
-        .setFooter({ text: "Staff Application System • DM Based", iconURL: client.user.displayAvatarURL() })
+        .setFooter({ text: "Application System • DM Based", iconURL: client.user.displayAvatarURL() })
         .setTimestamp();
 
     const selectMenu = new StringSelectMenuBuilder()
@@ -409,10 +434,10 @@ async function createApplicationPanel(channel) {
                 .setEmoji('🛠')
                 .setValue('staff'),
             new StringSelectMenuOptionBuilder()
-                .setLabel('🎨 Designer')
-                .setDescription('Apply as a designer')
-                .setEmoji('🎨')
-                .setValue('designer'),
+                .setLabel('🖼 Wallpaper Uploader')
+                .setDescription('Submit high-quality PC and mobile wallpapers')
+                .setEmoji('🖼')
+                .setValue('wallpaper'),
             new StringSelectMenuOptionBuilder()
                 .setLabel('🎉 Event Hoster')
                 .setDescription('Apply as an event hoster')
@@ -447,6 +472,9 @@ async function startApplication(user, position) {
         return false;
     }
     
+    // Select the correct question set based on position
+    const questions = position === 'wallpaper' ? WALLPAPER_APPLICATION_QUESTIONS : STANDARD_APPLICATION_QUESTIONS;
+    
     const application = {
         userId: user.id,
         position: position,
@@ -455,21 +483,21 @@ async function startApplication(user, position) {
         positionColor: positionConfig.color,
         step: 0,
         answers: {},
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        questions: questions // Store which questions are being used
     };
     
     activeApplications.set(user.id, application);
     
+    const isWallpaper = position === 'wallpaper';
+    const description = isWallpaper 
+        ? `You are applying to become a **Wallpaper Uploader**.\n\nPlease answer **${questions.length} questions** about your wallpaper submissions.\n\nType \`cancel\` at any time to cancel your application.`
+        : `I will ask you **${questions.length} questions**.\nPlease answer each question honestly.\n\n**Type \`cancel\` at any time to cancel your application.**\n\nLet's begin! 🚀`;
+    
     const welcomeEmbed = new EmbedBuilder()
-        .setTitle(`${positionConfig.emoji} Staff Application - ${positionConfig.name}`)
-        .setDescription(
-            `**Welcome to the application process!**\n\n` +
-            `I will ask you **${APPLICATION_QUESTIONS.length} questions**.\n` +
-            `Please answer each question honestly.\n\n` +
-            `**Type \`cancel\` at any time to cancel your application.**\n\n` +
-            `Let's begin! 🚀`
-        )
-        .setColor(positionConfig.color)
+        .setTitle(`${positionConfig.emoji} ${positionConfig.name} Application`)
+        .setDescription(description)
+        .setColor(typeof positionConfig.color === 'string' ? parseInt(positionConfig.color.replace('#', ''), 16) : positionConfig.color)
         .setTimestamp();
     
     await user.send({ embeds: [welcomeEmbed] }).catch(() => {
@@ -485,14 +513,16 @@ async function sendNextQuestion(userId) {
     const application = activeApplications.get(userId);
     if (!application) return;
     
-    if (application.step >= APPLICATION_QUESTIONS.length) {
+    const questions = application.questions || STANDARD_APPLICATION_QUESTIONS;
+    
+    if (application.step >= questions.length) {
         await submitApplication(userId);
         return;
     }
     
-    const question = APPLICATION_QUESTIONS[application.step];
+    const question = questions[application.step];
     const questionEmbed = new EmbedBuilder()
-        .setTitle(`📝 Question ${application.step + 1}/${APPLICATION_QUESTIONS.length}`)
+        .setTitle(`📝 Question ${application.step + 1}/${questions.length}`)
         .setDescription(`**${question.question}**\n\n\`\`\`${question.example}\`\`\``)
         .setColor(0x5865F2)
         .setFooter({ text: "Type your answer below • Type 'cancel' to cancel" });
@@ -509,7 +539,8 @@ async function processAnswer(userId, answer) {
     const application = activeApplications.get(userId);
     if (!application) return;
     
-    const currentQuestion = APPLICATION_QUESTIONS[application.step];
+    const questions = application.questions || STANDARD_APPLICATION_QUESTIONS;
+    const currentQuestion = questions[application.step];
     application.answers[currentQuestion.id] = answer;
     application.step++;
     activeApplications.set(userId, application);
@@ -564,16 +595,14 @@ async function submitApplication(userId) {
     
     await reviewChannel.send({ embeds: [embed], components: [buttons] });
     
+    const isWallpaper = application.position === 'wallpaper';
+    const successMessage = isWallpaper
+        ? `Your application for **${application.positionName}** has been submitted!\n\n**What happens next?**\n• Our team will review your wallpaper samples\n• You will be contacted via DM if you're selected\n• Please be patient\n\nThank you for your interest in contributing wallpapers! 🎉`
+        : `Your application for **${application.positionName}** has been submitted!\n\n**What happens next?**\n• Our team will review your application within 48 hours\n• You will be contacted via DM if you're selected\n• Please be patient\n\nThank you for your interest! 🎉`;
+    
     const confirmEmbed = new EmbedBuilder()
         .setTitle("✅ APPLICATION SUBMITTED")
-        .setDescription(
-            `> Your application for **${application.positionName}** has been submitted!\n\n` +
-            `**What happens next?**\n` +
-            `• Our team will review your application within 48 hours\n` +
-            `• You will be contacted via DM if you're selected\n` +
-            `• Please be patient\n\n` +
-            `Thank you for your interest! 🎉`
-        )
+        .setDescription(successMessage)
         .setColor(0x22C55E)
         .setTimestamp();
     
@@ -605,7 +634,7 @@ async function cancelApplication(userId) {
 // ============================================
 client.once('ready', async () => {
     console.log(`✨ ${client.user.tag} is online!`);
-    console.log(`📋 Ticket & Application Bot - Multi-Role Support`);
+    console.log(`📋 Ticket & Application Bot - Multi-Role Support | Wallpaper Uploader System`);
     
     const guild = client.guilds.cache.get(GUILD_ID);
     if (!guild) {
@@ -886,8 +915,9 @@ client.on('interactionCreate', async (interaction) => {
     const success = await startApplication(interaction.user, selectedPosition);
     
     if (success) {
+        const questionCount = selectedPosition === 'wallpaper' ? WALLPAPER_APPLICATION_QUESTIONS.length : STANDARD_APPLICATION_QUESTIONS.length;
         await interaction.reply({ 
-            content: `✅ Application process started! Please check your DMs (<@${interaction.user.id}>). You will be asked ${APPLICATION_QUESTIONS.length} questions.`,
+            content: `✅ Application process started! Please check your DMs (<@${interaction.user.id}>). You will be asked ${questionCount} questions.`,
             ephemeral: true 
         });
     } else {
@@ -930,7 +960,7 @@ client.on('messageCreate', async (message) => {
 });
 
 // ============================================
-// APPLICATION REVIEW - ACCEPT BUTTON (FIXED - Multiple Roles)
+// APPLICATION REVIEW - ACCEPT BUTTON
 // ============================================
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
@@ -967,8 +997,14 @@ client.on('interactionCreate', async (interaction) => {
     
     const originalEmbed = interaction.message.embeds[0];
     const answers = {};
+    
+    // Determine which answer keys to extract based on position
+    const isWallpaper = position === 'wallpaper';
+    const answerKeys = isWallpaper 
+        ? ['type', 'platform', 'origin', 'portfolio', 'activity', 'motivation']
+        : ['fullname', 'age', 'why', 'skills', 'experience', 'availability', 'device'];
+    
     const answerFields = originalEmbed.fields.slice(4);
-    const answerKeys = ['fullname', 'age', 'why', 'skills', 'experience', 'availability', 'device'];
     for (let i = 0; i < answerFields.length && i < answerKeys.length; i++) {
         answers[answerKeys[i]] = answerFields[i].value;
     }
@@ -996,16 +1032,24 @@ client.on('interactionCreate', async (interaction) => {
     }
     
     try {
+        const isWallpaperSuccess = position === 'wallpaper';
+        const successMessage = isWallpaperSuccess
+            ? `**Congratulations ${user.username} !**\n\n` +
+              `Your application for **${positionConfig.name}** has been **accepted** !\n\n` +
+              `**Next steps:**\n` +
+              `• A staff member will contact you shortly\n` +
+              `• You will receive instructions for submitting wallpapers\n` +
+              `• Welcome to the wallpaper contributor team! 🎉`
+            : `**Congratulations ${user.username} !**\n\n` +
+              `Your application for **${positionConfig.name}** has been **accepted** !\n\n` +
+              `**Next steps:**\n` +
+              `• A staff member will contact you shortly\n` +
+              `• You will receive instructions to get started\n` +
+              `• Welcome to the team ! 🎉`;
+        
         const acceptDMEmbed = new EmbedBuilder()
             .setTitle("✅ Félicitations ! Candidature Acceptée")
-            .setDescription(
-                `**Félicitations ${user.username} !**\n\n` +
-                `Votre candidature pour **${positionConfig.name}** a été **acceptée** !\n\n` +
-                `**Prochaines étapes:**\n` +
-                `• Un membre de l'équipe vous contactera prochainement\n` +
-                `• Vous recevrez les instructions pour commencer\n` +
-                `• Bienvenue dans l'équipe ! 🎉`
-            )
+            .setDescription(successMessage)
             .setColor(0x22C55E)
             .setTimestamp();
         await user.send({ embeds: [acceptDMEmbed] });
@@ -1028,7 +1072,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ============================================
-// APPLICATION REVIEW - DENY BUTTON (FIXED - Multiple Roles)
+// APPLICATION REVIEW - DENY BUTTON
 // ============================================
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isButton()) return;
@@ -1100,8 +1144,11 @@ client.on('interactionCreate', async (interaction) => {
     
     const answers = {};
     if (originalEmbed) {
+        const isWallpaper = position === 'wallpaper';
+        const answerKeys = isWallpaper 
+            ? ['type', 'platform', 'origin', 'portfolio', 'activity', 'motivation']
+            : ['fullname', 'age', 'why', 'skills', 'experience', 'availability', 'device'];
         const answerFields = originalEmbed.fields.slice(4);
-        const answerKeys = ['fullname', 'age', 'why', 'skills', 'experience', 'availability', 'device'];
         for (let i = 0; i < answerFields.length && i < answerKeys.length; i++) {
             answers[answerKeys[i]] = answerFields[i].value;
         }
